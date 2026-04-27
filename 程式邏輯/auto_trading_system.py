@@ -304,8 +304,8 @@ class Indicators:
         df["MA_Slow"]  = c.rolling(cfg.ma_slow).mean()
         df["High_N"]   = c.rolling(cfg.breakout_window).max()
         df["Low_N"]    = c.rolling(cfg.breakout_window).min()
-        df["High_52W"] = c.rolling(cfg.week52).max()
-        df["Low_52W"]  = c.rolling(cfg.week52).min()
+        df["High_52W"] = df["High"].rolling(cfg.week52).max()
+        df["Low_52W"]  = df["Low"].rolling(cfg.week52).min()
 
         # 成交金額（若有 Amount 欄使用之，否則估算）
         if "Amount" in df.columns:
@@ -334,20 +334,24 @@ class UniverseFilter:
 
         條件：
         1. 20 日平均成交金額 >= min_avg_amount
-        2. 收盤價在 52 週最高價的 90% 以上（趨近新高）
+        2. 今日最高價 > 52 週最高價（突破新高）
+           或 今日最低價 < 52 週最低價（突破新低）
         """
         candidates = []
         for ticker, df in data_dict.items():
             if date not in df.index:
                 continue
-            row = df.loc[date]
-            if pd.isna(row.get("Avg_Amount_20")) or pd.isna(row.get("High_52W")):
+            idx = df.index.get_loc(date)
+            if idx == 0:
                 continue
-            if row["High_52W"] <= 0:
+            row      = df.iloc[idx]
+            prev_row = df.iloc[idx - 1]
+            if any(pd.isna([row.get("Avg_Amount_20"), prev_row.get("High_52W"), prev_row.get("Low_52W")])):
                 continue
-            amount_ok = row["Avg_Amount_20"] >= self.cfg.min_avg_amount
-            near_52wh = row["Close"] >= row["High_52W"] * 0.90
-            if amount_ok and near_52wh:
+            amount_ok    = row["Avg_Amount_20"] >= self.cfg.min_avg_amount
+            new_52w_high = row["High"] > prev_row["High_52W"]
+            new_52w_low  = row["Low"]  < prev_row["Low_52W"]
+            if amount_ok and (new_52w_high or new_52w_low):
                 candidates.append(ticker)
         return candidates
 

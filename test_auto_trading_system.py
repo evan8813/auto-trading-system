@@ -136,21 +136,39 @@ class TestIndicators:
         assert abs(df_ind["High_N"].iloc[4] - 18.0) < 1e-6, \
             f"High_N 最後筆應為 18，實際 {df_ind['High_N'].iloc[4]}"
 
-    def test_high_52w_at_all_time_high(self):
+    def test_high_52w_uses_high_column(self):
         """
-        若最後一天是整段期間最高價，High_52W 應等於最後那天的收盤。
+        High_52W 應取 High 欄位（最高價）的 52 週最大值，不是收盤。
 
-        設計：持續上漲的序列 [1, 2, 3, ..., 30]，week52=10
-        最後一筆 High_52W = max(21..30) = 30
+        設計：收盤固定 100，但 High = close * 1.02 = 102
+              week52=10，最後一筆 High_52W 應等於 102（High 欄）
         """
-        closes = list(range(1, 31))  # 30 天
+        closes = [100.0] * 30
         df = make_df_with_close(closes)
         cfg = TradingConfig(ma_fast=3, ma_slow=5, breakout_window=3,
                             atr_period=3, week52=10)
         df_ind = Indicators.add_all(df, cfg)
 
-        assert abs(df_ind["High_52W"].iloc[-1] - 30.0) < 1e-6, \
-            f"High_52W 最後筆應為 30，實際 {df_ind['High_52W'].iloc[-1]}"
+        expected = 100.0 * 1.02  # High = close * 1.02
+        assert abs(df_ind["High_52W"].iloc[-1] - expected) < 1e-6, \
+            f"High_52W 應為 {expected}（High 欄），實際 {df_ind['High_52W'].iloc[-1]}"
+
+    def test_low_52w_uses_low_column(self):
+        """
+        Low_52W 應取 Low 欄位（最低價）的 52 週最小值，不是收盤。
+
+        設計：收盤固定 100，但 Low = close * 0.98 = 98
+              week52=10，最後一筆 Low_52W 應等於 98（Low 欄）
+        """
+        closes = [100.0] * 30
+        df = make_df_with_close(closes)
+        cfg = TradingConfig(ma_fast=3, ma_slow=5, breakout_window=3,
+                            atr_period=3, week52=10)
+        df_ind = Indicators.add_all(df, cfg)
+
+        expected = 100.0 * 0.98  # Low = close * 0.98
+        assert abs(df_ind["Low_52W"].iloc[-1] - expected) < 1e-6, \
+            f"Low_52W 應為 {expected}（Low 欄），實際 {df_ind['Low_52W'].iloc[-1]}"
 
 
 # ══════════════════════════════════════════════
@@ -160,93 +178,88 @@ class TestIndicators:
 class TestUniverseFilter:
     """驗證選股條件篩選是否符合規格"""
 
-    def _make_data(self, close: float, amount: float, n: int = 300) -> dict:
-        """建立含有指標欄位的資料字典，供 UniverseFilter 使用"""
-        cfg = TradingConfig(
-            min_avg_amount=5_000_000,
-            week52=252,
-            ma_fast=50, ma_slow=100,
-            breakout_window=50, atr_period=14,
-        )
-        df = make_df(n=n, close=close, amount=amount)
-        df_ind = Indicators.add_all(df, cfg)
-        return df_ind
+    CFG = TradingConfig(
+        min_avg_amount=5_000_000,
+        week52=252,
+        ma_fast=50, ma_slow=100,
+        breakout_window=50, atr_period=14,
+    )
 
-    def test_should_select_when_all_conditions_met(self):
+    def _make_ind(self, closes: list, amount: float) -> pd.DataFrame:
+        df = make_df_with_close(closes, amount=amount)
+        return Indicators.add_all(df, self.CFG)
+
+    # ── 入選條件 ──────────────────────────────
+
+    def test_select_when_high_breaks_52w_high(self):
         """
-        金額充足 + 收盤在 52 週高附近 → 應入選。
+        金額充足 + 今日最高價 > 52 週最高價 → 應入選（突破新高）。
 
-        設計：全期收盤固定 100，高於 52週高(=100) * 0.90 = 90
+        設計：前 252 天 High 固定 102，最後一天 High = 103（突破）
         """
-        cfg = TradingConfig(min_avg_amount=5_000_000)
-        df = self._make_data(close=100.0, amount=10_000_000)
-        date = df.index[-1]
-
-        result = UniverseFilter(cfg).filter({"AAAA": df}, date)
-
-        assert "AAAA" in result, "金額與價位都符合，應該入選"
-
-    def test_should_reject_when_amount_too_low(self):
-        """
-        成交金額不足門檻 → 不應入選。
-
-        設計：成交金額 = 1,000,000（低於門檻 5,000,000）
-        """
-        cfg = TradingConfig(min_avg_amount=5_000_000)
-        df = self._make_data(close=100.0, amount=1_000_000)
-        date = df.index[-1]
-
-        result = UniverseFilter(cfg).filter({"BBBB": df}, date)
-
-        assert "BBBB" not in result, "成交金額不足，不應入選"
-
-    def test_should_reject_when_far_from_52w_high(self):
-        """
-        收盤離 52 週高太遠（低於 90%）→ 不應入選。
-
-        設計：前 200 天收盤 = 100，最後 100 天收盤 = 80
-              52 週高 ≈ 100，收盤 80 < 100 * 0.90 = 90 → 不符
-        """
-        cfg = TradingConfig(min_avg_amount=5_000_000)
-        closes = [100.0] * 200 + [80.0] * 100
-        df = make_df_with_close(closes, amount=10_000_000)
-        df_ind = Indicators.add_all(df, cfg)
+        # 前 252 天 close=100（High=102），最後一天 close=101（High=102.02）
+        # 為了讓最後一天 High 確實 > High_52W，最後一天給更高的 close
+        closes = [100.0] * 252 + [105.0]
+        df_ind = self._make_ind(closes, amount=10_000_000)
         date = df_ind.index[-1]
 
-        result = UniverseFilter(cfg).filter({"CCCC": df_ind}, date)
+        result = UniverseFilter(self.CFG).filter({"AAAA": df_ind}, date)
 
-        assert "CCCC" not in result, "收盤離 52 週高太遠，不應入選"
+        assert "AAAA" in result, "最高價突破 52 週高，應入選"
 
-    def test_boundary_exactly_at_90pct(self):
+    def test_select_when_low_breaks_52w_low(self):
         """
-        收盤剛好等於 52 週高 × 0.90 → 應入選（>=，包含邊界）。
+        金額充足 + 今日最低價 < 52 週最低價 → 應入選（突破新低）。
 
-        設計：52 週高固定 100，最後一天收盤設為 90.0
+        設計：前 252 天 Low 固定 98，最後一天 Low 更低
         """
-        cfg = TradingConfig(min_avg_amount=5_000_000, week52=252)
-
-        # 前 252 天收盤 100，最後一天收盤 90
-        closes = [100.0] * 252 + [90.0]
-        df = make_df_with_close(closes, amount=10_000_000)
-        df_ind = Indicators.add_all(df, cfg)
+        closes = [100.0] * 252 + [95.0]
+        df_ind = self._make_ind(closes, amount=10_000_000)
         date = df_ind.index[-1]
 
-        result = UniverseFilter(cfg).filter({"DDDD": df_ind}, date)
+        result = UniverseFilter(self.CFG).filter({"BBBB": df_ind}, date)
 
-        assert "DDDD" in result, "收盤剛好 = 52週高 × 0.90，應入選（>=，包含邊界）"
+        assert "BBBB" in result, "最低價突破 52 週低，應入選"
 
-    def test_should_reject_when_nan_indicator(self):
+    # ── 排除條件 ──────────────────────────────
+
+    def test_reject_when_amount_too_low(self):
         """
-        資料不足導致指標為 NaN → 不應入選。
-
-        設計：只給 50 筆資料，week52=252 → High_52W 全為 NaN
+        成交金額不足門檻（1M < 5M）→ 不應入選。
         """
-        cfg = TradingConfig(min_avg_amount=5_000_000, week52=252)
+        closes = [100.0] * 252 + [105.0]
+        df_ind = self._make_ind(closes, amount=1_000_000)
+        date = df_ind.index[-1]
+
+        result = UniverseFilter(self.CFG).filter({"CCCC": df_ind}, date)
+
+        assert "CCCC" not in result, "成交金額不足，不應入選"
+
+    def test_reject_when_no_52w_breakout(self):
+        """
+        金額充足但最高價 / 最低價都沒有突破 52 週 → 不應入選。
+
+        設計：全部 253 天收盤固定 100，最後一天沒有突破
+        """
+        closes = [100.0] * 253
+        df_ind = self._make_ind(closes, amount=10_000_000)
+        date = df_ind.index[-1]
+
+        result = UniverseFilter(self.CFG).filter({"DDDD": df_ind}, date)
+
+        assert "DDDD" not in result, "沒有突破 52 週高低，不應入選"
+
+    def test_reject_when_nan_indicator(self):
+        """
+        資料不足導致 High_52W / Low_52W 為 NaN → 不應入選。
+
+        設計：只給 50 筆，week52=252 → 指標全為 NaN
+        """
         df = make_df(n=50, close=100.0, amount=10_000_000)
-        df_ind = Indicators.add_all(df, cfg)
+        df_ind = Indicators.add_all(df, self.CFG)
         date = df_ind.index[-1]
 
-        result = UniverseFilter(cfg).filter({"EEEE": df_ind}, date)
+        result = UniverseFilter(self.CFG).filter({"EEEE": df_ind}, date)
 
         assert "EEEE" not in result, "指標 NaN 時不應入選"
 
