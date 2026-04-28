@@ -170,6 +170,51 @@ class TestIndicators:
         assert abs(df_ind["Low_52W"].iloc[-1] - expected) < 1e-6, \
             f"Low_52W 應為 {expected}（Low 欄），實際 {df_ind['Low_52W'].iloc[-1]}"
 
+    def test_low_n_is_rolling_min_of_close(self):
+        """
+        Low_N 是收盤價的 rolling min，應等於過去 N 天的最低收盤。
+
+        設計：收盤 [10, 5, 15, 8, 12]，window=3
+        第 3 筆（index=2）: min(10, 5, 15) = 5
+        第 5 筆（index=4）: min(15, 8, 12) = 8
+        """
+        closes = [10, 5, 15, 8, 12]
+        df = make_df_with_close(closes)
+        cfg = TradingConfig(ma_fast=2, ma_slow=3, breakout_window=3,
+                            atr_period=2, week52=3)
+        df_ind = Indicators.add_all(df, cfg)
+
+        assert abs(df_ind["Low_N"].iloc[2] - 5.0) < 1e-6, \
+            f"Low_N 第 3 筆應為 5，實際 {df_ind['Low_N'].iloc[2]}"
+        assert abs(df_ind["Low_N"].iloc[4] - 8.0) < 1e-6, \
+            f"Low_N 最後筆應為 8，實際 {df_ind['Low_N'].iloc[4]}"
+
+    def test_atr_with_gap(self):
+        """
+        當日出現跳空缺口時，ATR 應使用 |High - prev_close| 或 |Low - prev_close|，
+        而不只是 High - Low。
+
+        設計：
+          前一天 close = 100
+          今天   High = 110, Low = 108（跳空向上，H-L = 2）
+          TrueRange = max(2, |110-100|, |108-100|) = max(2, 10, 8) = 10
+          預期 ATR(1) = 10（遠大於 H-L=2）
+        """
+        dates = pd.bdate_range("2020-01-01", periods=2)
+        df = pd.DataFrame({
+            "Open":   [100.0, 109.0],
+            "High":   [101.0, 110.0],
+            "Low":    [99.0,  108.0],
+            "Close":  [100.0, 109.0],
+            "Volume": [1_000_000, 1_000_000],
+            "Amount": [10_000_000.0, 10_000_000.0],
+        }, index=dates)
+
+        atr = Indicators.atr(df, period=1)
+
+        assert abs(atr.iloc[1] - 10.0) < 1e-6, \
+            f"跳空缺口時 ATR 應為 10（取 True Range），實際 {atr.iloc[1]}"
+
 
 # ══════════════════════════════════════════════
 # 2. UniverseFilter 測試
@@ -385,6 +430,100 @@ class TestSignalGenerator:
         row = pd.Series({"Close": 100.0, "ATR": 5.0})
         assert SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0), \
             "收盤 100 > 做空停損線 95，應出場"
+
+    # ── 做空：補齊對稱測試 ─────────────────────
+
+    def test_short_entry_false_when_no_breakdown(self):
+        """
+        今日收盤 >= 昨日 N 日低 → 不觸發做空。
+
+        設計：收盤 100 >= 前日 Low_N 99，不應進場
+        """
+        row = pd.Series({
+            "Close": 100.0, "Low_N": 97.0,
+            "MA_Fast": 90.0, "MA_Slow": 105.0, "ATR": 3.0,
+        })
+        prev_row = pd.Series({
+            "Close": 102.0, "Low_N": 99.0,
+            "MA_Fast": 91.0, "MA_Slow": 105.0, "ATR": 3.0,
+        })
+        assert not SignalGenerator.short_entry(row, prev_row), \
+            "收盤 100 >= 前日 Low_N 99，不應進場做空"
+
+    def test_short_entry_false_when_ma_not_inverted(self):
+        """
+        有跌破但 MA_Fast > MA_Slow → 趨勢不對，不觸發做空。
+        """
+        row = pd.Series({
+            "Close": 95.0, "Low_N": 97.0,
+            "MA_Fast": 110.0, "MA_Slow": 100.0, "ATR": 3.0,
+        })
+        prev_row = pd.Series({
+            "Close": 100.0, "Low_N": 96.0,
+            "MA_Fast": 109.0, "MA_Slow": 100.0, "ATR": 3.0,
+        })
+        assert not SignalGenerator.short_entry(row, prev_row), \
+            "MA_Fast(110) > MA_Slow(100)，趨勢不對，不應進場做空"
+
+    def test_short_entry_false_when_nan(self):
+        """任一指標為 NaN → 保護性回傳 False，不觸發做空訊號。"""
+        row = pd.Series({
+            "Close": 95.0, "Low_N": 97.0,
+            "MA_Fast": float("nan"), "MA_Slow": 105.0, "ATR": 3.0,
+        })
+        prev_row = pd.Series({
+            "Close": 100.0, "Low_N": 96.0,
+            "MA_Fast": 99.0, "MA_Slow": 105.0, "ATR": 3.0,
+        })
+        assert SignalGenerator.short_entry(row, prev_row) is False, \
+            "MA_Fast 為 NaN 時，應回傳 False"
+
+    def test_short_exit_false_when_close_below_trail_stop(self):
+        """
+        做空停損：收盤 <= 停損線 → 不應出場，繼續持有。
+
+        設計：trail_low=80, ATR=5, atr_mult=3
+              停損線 = 95，收盤 = 90 < 95 → 不出場
+        """
+        row = pd.Series({"Close": 90.0, "ATR": 5.0})
+        assert not SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0), \
+            "收盤 90 < 做空停損線 95，不應出場"
+
+    def test_short_exit_false_when_atr_nan(self):
+        """ATR 為 NaN → 保護性回傳 False，不觸發做空出場。"""
+        row = pd.Series({"Close": 100.0, "ATR": float("nan")})
+        assert SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0) is False, \
+            "ATR 為 NaN 時，不應觸發做空出場"
+
+    # ── 邊界值：剛好等於門檻 ──────────────────
+
+    def test_long_entry_false_when_close_equals_high_n(self):
+        """
+        收盤剛好等於前日 High_N（不是 >）→ 不觸發做多。
+
+        設計：close == prev High_N == 100，條件為嚴格大於
+        """
+        row      = self._make_row(close=100.0, high_n=110, ma_fast=102, ma_slow=95, atr=3)
+        prev_row = self._make_row(close=99.0,  high_n=100.0, ma_fast=101, ma_slow=95, atr=3)
+        assert not SignalGenerator.long_entry(row, prev_row), \
+            "收盤 100 == 前日 High_N 100，條件為嚴格 >，不應進場"
+
+    def test_short_entry_false_when_close_equals_low_n(self):
+        """
+        收盤剛好等於前日 Low_N（不是 <）→ 不觸發做空。
+
+        設計：close == prev Low_N == 96，條件為嚴格小於
+        """
+        row = pd.Series({
+            "Close": 96.0, "Low_N": 97.0,
+            "MA_Fast": 90.0, "MA_Slow": 105.0, "ATR": 3.0,
+        })
+        prev_row = pd.Series({
+            "Close": 100.0, "Low_N": 96.0,
+            "MA_Fast": 91.0, "MA_Slow": 105.0, "ATR": 3.0,
+        })
+        assert not SignalGenerator.short_entry(row, prev_row), \
+            "收盤 96 == 前日 Low_N 96，條件為嚴格 <，不應進場做空"
 
 
 # ══════════════════════════════════════════════
