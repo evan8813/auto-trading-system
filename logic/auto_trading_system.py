@@ -594,6 +594,10 @@ class Backtester:
         Returns
         -------
         dict with keys: equity_curve, trades, metrics
+
+        時序規則（T+1 執行）：
+          T   日收盤 → 判斷訊號，存入 pending
+          T+1 日開盤 → 執行進出場
         """
         data = {t: Indicators.add_all(df, self.cfg) for t, df in raw_data.items()}
 
@@ -607,28 +611,118 @@ class Backtester:
         closed_trades: list[dict]    = []
         equity_curve:  list[dict]    = []
 
+        # T 日收盤產生訊號，T+1 日開盤才執行
+        pending_exit_tickers: set[str]                     = set()
+        pending_entries:      list[tuple[str, str, float]] = []  # (ticker, direction, atr)
+
         for i, date in enumerate(all_dates):
-            if i == 0:
-                equity_curve.append({"date": date, "equity": equity})
-                continue
 
-            prev_date = all_dates[i - 1]
+            # ── (A) 執行前一日訊號（T+1 開盤成交）──
+            if pending_exit_tickers or pending_entries:
+                # 出場
+                still_open: list[Position] = []
+                for pos in positions:
+                    if pos.ticker in pending_exit_tickers:
+                        df = data.get(pos.ticker)
+                        if df is not None and date in df.index:
+                            exit_px = df.loc[date, "Open"]
+                            if pd.isna(exit_px):
+                                exit_px = df.loc[date, "Close"]
+                            trade = self._close_position(pos, date, exit_px, "signal")
+                            equity += trade["pnl_net"]
+                            closed_trades.append(trade)
+                            logger.debug(
+                                f"EXIT  {pos.ticker} {pos.direction} @ {exit_px:.2f}"
+                                f"  PnL={trade['pnl_net']:+.0f}"
+                            )
+                        else:
+                            still_open.append(pos)
+                    else:
+                        still_open.append(pos)
+                positions = still_open
 
-            # ── (A) 出場檢查 ──
-            positions, exited = self._check_exits(positions, data, date)
-            for t in exited:
-                equity += t["pnl_net"]
-                closed_trades.append(t)
+                # 進場
+                held = {p.ticker for p in positions}
+                for ticker, direction, atr in pending_entries:
+                    if len(positions) >= self.cfg.max_positions:
+                        break
+                    if ticker in held:
+                        continue
+                    df = data.get(ticker)
+                    if df is None or date not in df.index:
+                        continue
+                    entry_px = df.loc[date, "Open"]
+                    if pd.isna(entry_px):
+                        continue
+                    lots = self.risk_mgr.position_size_lots(equity, atr)
+                    if lots == 0:
+                        continue
+                    shares    = lots * 1000
+                    adj_entry = (entry_px * (1 + self.cfg.slippage) if direction == "long"
+                                 else entry_px * (1 - self.cfg.slippage))
+                    pos = Position(
+                        ticker          = ticker,
+                        direction       = direction,
+                        entry_date      = date,
+                        lots            = lots,
+                        shares          = shares,
+                        adj_entry_price = adj_entry,
+                        raw_entry_price = entry_px,
+                        trail_high      = df.loc[date, "High"],
+                        trail_low       = df.loc[date, "Low"],
+                        atr_at_entry    = atr,
+                    )
+                    positions.append(pos)
+                    held.add(ticker)
+                    logger.debug(
+                        f"ENTRY {ticker} {direction.upper()} @ {adj_entry:.2f}"
+                        f"  lots={lots}  ATR={atr:.2f}"
+                    )
 
-            # ── (B) 篩選 + 進場 ──
-            candidates   = self.uni_flt.filter(data, date)
-            held_tickers = {p.ticker for p in positions}
+            pending_exit_tickers = set()
+            pending_entries      = []
 
-            if len(positions) < self.cfg.max_positions:
-                new_pos = self._check_entries(
-                    candidates, data, date, prev_date, equity, held_tickers
-                )
-                positions.extend(new_pos)
+            # ── (B) 更新追蹤停損 + 判斷今日出場訊號（T+1 執行）──
+            prev_date = all_dates[i - 1] if i > 0 else date
+            for pos in positions:
+                df = data.get(pos.ticker)
+                if df is None or date not in df.index:
+                    continue
+                row = df.loc[date]
+                pos.update_trail(row["High"], row["Low"])
+                if pos.direction == "long":
+                    if self.sig_gen.long_exit(row, pos.trail_high, self.cfg.atr_multiplier):
+                        pending_exit_tickers.add(pos.ticker)
+                else:
+                    if self.sig_gen.short_exit(row, pos.trail_low, self.cfg.atr_multiplier):
+                        pending_exit_tickers.add(pos.ticker)
+
+            # ── (C) 篩選 + 判斷今日進場訊號（T+1 執行）──
+            candidates      = self.uni_flt.filter(data, date)
+            held_tickers    = {p.ticker for p in positions}
+            effective_held  = held_tickers - pending_exit_tickers
+            available_slots = self.cfg.max_positions - len(effective_held)
+
+            for ticker in candidates:
+                if len(pending_entries) >= available_slots:
+                    break
+                if ticker in effective_held or ticker in {e[0] for e in pending_entries}:
+                    continue
+                df = data.get(ticker)
+                if df is None or date not in df.index or prev_date not in df.index:
+                    continue
+                row      = df.loc[date]
+                prev_row = df.loc[prev_date]
+                atr      = row["ATR"]
+                if pd.isna(atr) or atr <= 0:
+                    continue
+                direction = None
+                if self.sig_gen.long_entry(row, prev_row):
+                    direction = "long"
+                elif self.sig_gen.short_entry(row, prev_row):
+                    direction = "short"
+                if direction:
+                    pending_entries.append((ticker, direction, atr))
 
             equity_curve.append({"date": date, "equity": equity})
 
@@ -640,45 +734,6 @@ class Backtester:
             "trades":       trades_df,
             "metrics":      metrics,
         }
-
-    # ── 出場 ──────────────────────────────────
-
-    def _check_exits(
-        self,
-        positions: list[Position],
-        data:      dict[str, pd.DataFrame],
-        date:      pd.Timestamp,
-    ) -> tuple[list[Position], list[dict]]:
-        remaining, exited = [], []
-
-        for pos in positions:
-            df = data.get(pos.ticker)
-            if df is None or date not in df.index:
-                remaining.append(pos)
-                continue
-
-            row = df.loc[date]
-            pos.update_trail(row["High"], row["Low"])
-
-            if pos.direction == "long":
-                should_exit = self.sig_gen.long_exit(
-                    row, pos.trail_high, self.cfg.atr_multiplier)
-            else:
-                should_exit = self.sig_gen.short_exit(
-                    row, pos.trail_low, self.cfg.atr_multiplier)
-
-            if should_exit:
-                exit_px = row["Open"] if not pd.isna(row["Open"]) else row["Close"]
-                trade   = self._close_position(pos, date, exit_px, "signal")
-                exited.append(trade)
-                logger.debug(
-                    f"EXIT  {pos.ticker} {pos.direction} @ {exit_px:.2f}"
-                    f"  PnL={trade['pnl_net']:+.0f}"
-                )
-            else:
-                remaining.append(pos)
-
-        return remaining, exited
 
     def _close_position(
         self,
@@ -734,80 +789,6 @@ class Backtester:
             # ── 出場原因 ──
             "exit_reason":     reason,
         }
-
-    # ── 進場 ──────────────────────────────────
-
-    def _check_entries(
-        self,
-        candidates:   list[str],
-        data:         dict[str, pd.DataFrame],
-        date:         pd.Timestamp,
-        prev_date:    pd.Timestamp,
-        equity:       float,
-        held_tickers: set[str],
-    ) -> list[Position]:
-        new_positions = []
-
-        for ticker in candidates:
-            if ticker in held_tickers:
-                continue
-            if len(held_tickers) + len(new_positions) >= self.cfg.max_positions:
-                break
-
-            df = data.get(ticker)
-            if df is None or date not in df.index or prev_date not in df.index:
-                continue
-
-            row      = df.loc[date]
-            prev_row = df.loc[prev_date]
-            atr      = row["ATR"]
-
-            if pd.isna(atr) or atr <= 0:
-                continue
-
-            direction = None
-            if self.sig_gen.long_entry(row, prev_row):
-                direction = "long"
-            elif self.sig_gen.short_entry(row, prev_row):
-                direction = "short"
-
-            if direction is None:
-                continue
-
-            lots = self.risk_mgr.position_size_lots(equity, atr)
-            if lots == 0:
-                continue
-
-            shares      = lots * 1000
-            entry_price = row["Open"]
-            if pd.isna(entry_price):
-                continue
-
-            if direction == "long":
-                adj_entry = entry_price * (1 + self.cfg.slippage)
-            else:
-                adj_entry = entry_price * (1 - self.cfg.slippage)
-
-            pos = Position(
-                ticker          = ticker,
-                direction       = direction,
-                entry_date      = date,
-                lots            = lots,
-                shares          = shares,
-                adj_entry_price = adj_entry,
-                raw_entry_price = entry_price,   # 回測中 raw = adj
-                trail_high      = row["High"],
-                trail_low       = row["Low"],
-                atr_at_entry    = atr,
-            )
-            new_positions.append(pos)
-            held_tickers.add(ticker)
-            logger.debug(
-                f"ENTRY {ticker} {direction.upper()} @ {adj_entry:.2f}"
-                f"  lots={lots}  ATR={atr:.2f}"
-            )
-
-        return new_positions
 
     # ── 績效指標 ──────────────────────────────
 
