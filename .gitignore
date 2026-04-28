@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+
+# Output files
+logic/auto_trading/output/
+
+# Data
+stocks/
+
+# Claude
+.claude/settings.local.json
+
+# Archives
+*.zip
