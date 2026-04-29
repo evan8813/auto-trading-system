@@ -587,6 +587,8 @@ class Backtester:
 
     def run(self, raw_data: dict[str, pd.DataFrame]) -> dict:
         """
+        時序規則：T 日收盤偵測訊號，T+1 日開盤執行進出場。
+
         Parameters
         ----------
         raw_data : dict  key = 股票代號, value = OHLCV DataFrame
@@ -607,28 +609,66 @@ class Backtester:
         closed_trades: list[dict]    = []
         equity_curve:  list[dict]    = []
 
+        # T 日收盤產生的待執行訊號，T+1 日開盤才執行
+        pending_exit_tickers: set[str]                     = set()
+        pending_entries:      list[tuple[str, str, float]] = []  # (ticker, direction, atr)
+
         for i, date in enumerate(all_dates):
-            if i == 0:
-                equity_curve.append({"date": date, "equity": equity})
-                continue
 
-            prev_date = all_dates[i - 1]
+            # ── (A) 執行前一日收盤訊號（T+1 開盤成交）──
+            if pending_exit_tickers or pending_entries:
+                positions, exited = self._execute_exits(
+                    positions, data, date, pending_exit_tickers)
+                for trade in exited:
+                    equity += trade["pnl_net"]
+                    closed_trades.append(trade)
 
-            # ── (A) 出場檢查 ──
-            positions, exited = self._check_exits(positions, data, date)
-            for t in exited:
-                equity += t["pnl_net"]
-                closed_trades.append(t)
+                held = {p.ticker for p in positions}
+                if len(positions) < self.cfg.max_positions:
+                    new_pos = self._execute_entries(
+                        pending_entries, data, date, held, equity)
+                    positions.extend(new_pos)
 
-            # ── (B) 篩選 + 進場 ──
+            pending_exit_tickers = set()
+            pending_entries      = []
+
+            # ── (B) 更新 trail（用今日 High/Low），再判斷今日收盤出場訊號 ──
+            for pos in positions:
+                df = data.get(pos.ticker)
+                if df is None or date not in df.index:
+                    continue
+                row = df.loc[date]
+                pos.update_trail(row["High"], row["Low"])
+                if pos.direction == "long":
+                    if self.sig_gen.long_exit(row, pos.trail_high, self.cfg.atr_multiplier):
+                        pending_exit_tickers.add(pos.ticker)
+                else:
+                    if self.sig_gen.short_exit(row, pos.trail_low, self.cfg.atr_multiplier):
+                        pending_exit_tickers.add(pos.ticker)
+
+            # ── (C) 今日收盤：篩選 + 判斷進場訊號（T+1 執行）──
+            prev_date    = all_dates[i - 1] if i > 0 else date
             candidates   = self.uni_flt.filter(data, date)
             held_tickers = {p.ticker for p in positions}
+            effective_held  = held_tickers - pending_exit_tickers
+            available_slots = self.cfg.max_positions - len(effective_held)
 
-            if len(positions) < self.cfg.max_positions:
-                new_pos = self._check_entries(
-                    candidates, data, date, prev_date, equity, held_tickers
-                )
-                positions.extend(new_pos)
+            for ticker in candidates:
+                if len(pending_entries) >= available_slots:
+                    break
+                if ticker in effective_held or ticker in pending_exit_tickers or ticker in {e[0] for e in pending_entries}:
+                    continue
+                df = data.get(ticker)
+                if df is None or date not in df.index or prev_date not in df.index:
+                    continue
+                row      = df.loc[date]
+                prev_row = df.loc[prev_date]
+                atr = row["ATR"]
+                if pd.isna(atr) or atr <= 0:
+                    continue
+                direction = self._resolve_direction(row, prev_row)
+                if direction:
+                    pending_entries.append((ticker, direction, atr))
 
             equity_curve.append({"date": date, "equity": equity})
 
@@ -641,42 +681,34 @@ class Backtester:
             "metrics":      metrics,
         }
 
-    # ── 出場 ──────────────────────────────────
+    # ── 出場執行（T+1 開盤）──────────────────────
 
-    def _check_exits(
+    def _execute_exits(
         self,
-        positions: list[Position],
-        data:      dict[str, pd.DataFrame],
-        date:      pd.Timestamp,
+        positions:    list[Position],
+        data:         dict[str, pd.DataFrame],
+        exec_date:    pd.Timestamp,
+        exit_tickers: set[str],
     ) -> tuple[list[Position], list[dict]]:
-        remaining, exited = [], []
+        remaining: list[Position] = []
+        exited:    list[dict]    = []
 
         for pos in positions:
-            df = data.get(pos.ticker)
-            if df is None or date not in df.index:
+            if pos.ticker not in exit_tickers:
                 remaining.append(pos)
                 continue
-
-            row = df.loc[date]
-            pos.update_trail(row["High"], row["Low"])
-
-            if pos.direction == "long":
-                should_exit = self.sig_gen.long_exit(
-                    row, pos.trail_high, self.cfg.atr_multiplier)
-            else:
-                should_exit = self.sig_gen.short_exit(
-                    row, pos.trail_low, self.cfg.atr_multiplier)
-
-            if should_exit:
-                exit_px = row["Open"] if not pd.isna(row["Open"]) else row["Close"]
-                trade   = self._close_position(pos, date, exit_px, "signal")
-                exited.append(trade)
-                logger.debug(
-                    f"EXIT  {pos.ticker} {pos.direction} @ {exit_px:.2f}"
-                    f"  PnL={trade['pnl_net']:+.0f}"
-                )
-            else:
-                remaining.append(pos)
+            df = data.get(pos.ticker)
+            if df is None or exec_date not in df.index:
+                remaining.append(pos)   # 停牌 → 留倉等下一天
+                continue
+            row     = df.loc[exec_date]
+            exit_px = row["Open"] if not pd.isna(row["Open"]) else row["Close"]
+            trade   = self._close_position(pos, exec_date, exit_px, "signal")
+            exited.append(trade)
+            logger.debug(
+                f"EXIT  {pos.ticker} {pos.direction} @ {exit_px:.2f}"
+                f"  PnL={trade['pnl_net']:+.0f}"
+            )
 
         return remaining, exited
 
@@ -735,79 +767,78 @@ class Backtester:
             "exit_reason":     reason,
         }
 
-    # ── 進場 ──────────────────────────────────
+    # ── 進場執行（T+1 開盤）──────────────────────
 
-    def _check_entries(
+    def _execute_entries(
         self,
-        candidates:   list[str],
-        data:         dict[str, pd.DataFrame],
-        date:         pd.Timestamp,
-        prev_date:    pd.Timestamp,
-        equity:       float,
-        held_tickers: set[str],
+        pending_entries: list[tuple[str, str, float]],
+        data:            dict[str, pd.DataFrame],
+        exec_date:       pd.Timestamp,
+        held_tickers:    set[str],
+        equity:          float,
     ) -> list[Position]:
-        new_positions = []
+        new_positions: list[Position] = []
+        initial_held_count = len(held_tickers)  # snapshot before adding new ones
 
-        for ticker in candidates:
+        for ticker, direction, atr_at_signal in pending_entries:
             if ticker in held_tickers:
                 continue
-            if len(held_tickers) + len(new_positions) >= self.cfg.max_positions:
+            if initial_held_count + len(new_positions) >= self.cfg.max_positions:
                 break
 
             df = data.get(ticker)
-            if df is None or date not in df.index or prev_date not in df.index:
+            if df is None or exec_date not in df.index:
                 continue
 
-            row      = df.loc[date]
-            prev_row = df.loc[prev_date]
-            atr      = row["ATR"]
-
-            if pd.isna(atr) or atr <= 0:
-                continue
-
-            direction = None
-            if self.sig_gen.long_entry(row, prev_row):
-                direction = "long"
-            elif self.sig_gen.short_entry(row, prev_row):
-                direction = "short"
-
-            if direction is None:
-                continue
-
-            lots = self.risk_mgr.position_size_lots(equity, atr)
-            if lots == 0:
-                continue
-
-            shares      = lots * 1000
+            row = df.loc[exec_date]
             entry_price = row["Open"]
             if pd.isna(entry_price):
                 continue
 
-            if direction == "long":
-                adj_entry = entry_price * (1 + self.cfg.slippage)
-            else:
-                adj_entry = entry_price * (1 - self.cfg.slippage)
+            lots = self.risk_mgr.position_size_lots(equity, atr_at_signal)
+            if lots == 0:
+                continue
+
+            shares = lots * 1000
+            adj_entry = (
+                entry_price * (1 + self.cfg.slippage) if direction == "long"
+                else entry_price * (1 - self.cfg.slippage)
+            )
+
+            # 可用現金檢查
+            if adj_entry * shares > equity:
+                lots = max(int(equity / (adj_entry * 1000)), 0)
+                if lots == 0:
+                    continue
+                shares = lots * 1000
 
             pos = Position(
                 ticker          = ticker,
                 direction       = direction,
-                entry_date      = date,
+                entry_date      = exec_date,
                 lots            = lots,
                 shares          = shares,
                 adj_entry_price = adj_entry,
-                raw_entry_price = entry_price,   # 回測中 raw = adj
-                trail_high      = row["High"],
-                trail_low       = row["Low"],
-                atr_at_entry    = atr,
+                raw_entry_price = entry_price,
+                trail_high      = entry_price,
+                trail_low       = entry_price,
+                atr_at_entry    = atr_at_signal,
             )
             new_positions.append(pos)
             held_tickers.add(ticker)
             logger.debug(
                 f"ENTRY {ticker} {direction.upper()} @ {adj_entry:.2f}"
-                f"  lots={lots}  ATR={atr:.2f}"
+                f"  lots={lots}  ATR={atr_at_signal:.2f}"
             )
 
         return new_positions
+
+    def _resolve_direction(self, row: pd.Series, prev_row: pd.Series) -> str | None:
+        if self.sig_gen.long_entry(row, prev_row):
+            return "long"
+        if self.sig_gen.short_entry(row, prev_row):
+            return "short"
+        return None
 
     # ── 績效指標 ──────────────────────────────
 

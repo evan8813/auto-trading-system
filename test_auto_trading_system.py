@@ -29,6 +29,7 @@ from auto_trading_system import (
     SignalGenerator,
     RiskManager,
     Position,
+    Backtester,
 )
 
 # ══════════════════════════════════════════════
@@ -516,6 +517,185 @@ class TestPosition:
         pos.update_trail(high=102.0, low=90.0)
         pos.update_trail(high=105.0, low=95.0)  # 高於之前的 90
         assert pos.trail_low == 90.0, "trail_low 不應因新的較高低點而上升"
+
+
+# ══════════════════════════════════════════════
+# 6. Backtester 整合測試
+# ══════════════════════════════════════════════
+
+class TestBacktester:
+    """
+    驗證 Backtester 整體流程：
+      T+1 時序、部位上限、名額釋放、損益計算、防重複開倉
+    """
+
+    def _make_config(self, max_positions: int = 2) -> TradingConfig:
+        """小參數 Config，方便用短序列資料觸發訊號"""
+        return TradingConfig(
+            initial_equity  = 1_000_000,
+            risk_pct        = 0.01,
+            commission_rate = 0.0,      # 零成本，方便驗算損益
+            transaction_tax = 0.0,
+            slippage        = 0.0,
+            ma_fast         = 3,
+            ma_slow         = 5,
+            breakout_window = 3,
+            atr_period      = 3,
+            week52          = 10,
+            min_avg_amount  = 1_000_000,
+            max_positions   = max_positions,
+            atr_multiplier  = 2.0,
+            backtest_start  = "2020-01-01",
+            backtest_end    = "2025-12-31",
+            point_value     = 1.0,
+        )
+
+    def _make_stock_data(self, closes: list, amount: float = 10_000_000.0) -> pd.DataFrame:
+        """
+        以收盤價序列建立 OHLCV DataFrame。
+        High = close * 1.01, Low = close * 0.99（緊範圍，ATR 可控）
+        """
+        n = len(closes)
+        dates = pd.bdate_range("2020-01-02", periods=n)
+        closes_arr = np.array(closes, dtype=float)
+        return pd.DataFrame({
+            "Open":   closes_arr,
+            "High":   closes_arr * 1.01,
+            "Low":    closes_arr * 0.99,
+            "Close":  closes_arr,
+            "Volume": [1_000_000] * n,
+            "Amount": [amount] * n,
+        }, index=dates)
+
+    # ── T+1 時序 ─────────────────────────────
+
+    def test_entry_executes_on_t1_open(self):
+        """
+        T 日收盤產生進場訊號 → 應在 T+1 日開盤進場，entry_date 為 T+1。
+
+        設計：
+          Day 0-19:  warm-up，close=100（需 20 日讓 Avg_Amount_20 非 NaN）
+          Day 20:    close=110，突破 52W 高 + High_N，產生進場訊號（pending）
+          Day 21:    T+1 開盤進場 → entry_date 應為 Day 21
+          Day 22:    close=50，觸發停損
+          Day 23:    T+1 開盤出場
+        """
+        closes = [100.0] * 20 + [110.0, 110.0, 50.0, 50.0]
+        df = self._make_stock_data(closes)
+
+        result = Backtester(self._make_config()).run({"AAAA": df})
+        trades = result["trades"]
+
+        assert len(trades) == 1, f"應有 1 筆交易，實際 {len(trades)}"
+        assert trades.iloc[0]["entry_date"] == df.index[21], \
+            f"進場日應為 Day21（T+1），實際 {trades.iloc[0]['entry_date']}"
+
+    def test_exit_executes_on_t1_open(self):
+        """
+        T 日收盤觸發停損 → 應在 T+1 日開盤出場，exit_date 為 T+1。
+
+        設計：
+          Day 22:   close=50，跌破停損線，產生出場訊號（pending）
+          Day 23:   T+1 開盤出場 → exit_date 應為 Day 23，不是 Day 22
+        """
+        closes = [100.0] * 20 + [110.0, 110.0, 50.0, 50.0]
+        df = self._make_stock_data(closes)
+
+        result = Backtester(self._make_config()).run({"AAAA": df})
+        trades = result["trades"]
+
+        assert len(trades) == 1, f"應有 1 筆交易，實際 {len(trades)}"
+        assert trades.iloc[0]["exit_date"] == df.index[23], \
+            f"出場日應為 Day23（T+1），實際 {trades.iloc[0]['exit_date']}"
+
+    # ── 部位上限 ─────────────────────────────
+
+    def test_max_positions_limits_entries(self):
+        """
+        max_positions=2，同一天有 3 個進場訊號 → 只開 2 個部位。
+
+        設計：AAAA / BBBB / CCCC 三支同時突破，都產生進場訊號，
+              但 max_positions=2 只允許開兩個。
+        """
+        closes = [100.0] * 20 + [110.0, 110.0, 50.0, 50.0]
+        df = self._make_stock_data(closes)
+        data = {"AAAA": df, "BBBB": df.copy(), "CCCC": df.copy()}
+
+        result = Backtester(self._make_config(max_positions=2)).run(data)
+
+        assert len(result["trades"]) == 2, \
+            f"max_positions=2，應只有 2 筆交易，實際 {len(result['trades'])}"
+
+    # ── 出場釋放名額 ─────────────────────────
+
+    def test_exit_releases_slot_for_new_entry(self):
+        """
+        持倉滿 2/2，其中 A/B 出場後，C 應能在同一天補進。
+
+        設計：
+          AAAA / BBBB：Day20 進場訊號 → Day21 進場（佔滿 2 個名額）
+          Day22：A/B 觸發停損 → pending_exit；C 產生進場訊號 → pending_entry
+          Day23：A/B 出場（釋放名額），C 進場（使用空出名額）
+          → 共 3 筆交易，C 的 entry_date = Day23
+        """
+        closes_ab = [100.0] * 20 + [110.0, 110.0, 50.0, 50.0, 50.0, 50.0]
+        closes_c  = [100.0] * 22 + [115.0, 115.0, 50.0, 50.0]
+
+        df_ab = self._make_stock_data(closes_ab)
+        df_c  = self._make_stock_data(closes_c)
+        data  = {"AAAA": df_ab, "BBBB": df_ab.copy(), "CCCC": df_c}
+
+        result = Backtester(self._make_config(max_positions=2)).run(data)
+        trades = result["trades"]
+
+        assert len(trades) == 3, \
+            f"A/B 出場後 C 應補進，共 3 筆交易，實際 {len(trades)}"
+
+        c_trade = trades[trades["ticker"] == "CCCC"]
+        assert len(c_trade) == 1, "CCCC 應有 1 筆交易"
+        assert c_trade.iloc[0]["entry_date"] == df_c.index[23], \
+            f"CCCC 進場日應為 Day23（名額釋放當天），實際 {c_trade.iloc[0]['entry_date']}"
+
+    # ── 損益計算 ─────────────────────────────
+
+    def test_pnl_net_calculation(self):
+        """
+        零成本下，pnl_net 應等於 (出場價 - 進場價) × 股數。
+
+        設計：進場 110，出場 50，零手續費 / 零稅 / 零滑價
+              pnl_net = (50 - 110) × shares
+        """
+        closes = [100.0] * 20 + [110.0, 110.0, 50.0, 50.0]
+        df = self._make_stock_data(closes)
+
+        result = Backtester(self._make_config()).run({"AAAA": df})
+        trades = result["trades"]
+
+        assert len(trades) == 1
+        trade = trades.iloc[0]
+        expected = (trade["adj_exit_price"] - trade["adj_entry_price"]) * trade["shares"]
+        assert abs(trade["pnl_net"] - expected) < 1e-2, \
+            f"零成本下 pnl_net 應為 {expected:.2f}，實際 {trade['pnl_net']:.2f}"
+
+    # ── 防重複開倉 ───────────────────────────
+
+    def test_no_duplicate_entry_for_held_ticker(self):
+        """
+        已持有的股票再次出現進場訊號時，不應重複開倉。
+
+        設計：
+          Day20：AAAA 進場訊號 → Day21 進場
+          Day22：close=120，再次突破 High_N，又有進場訊號，但 AAAA 已持有
+          → 應只有 1 筆交易
+        """
+        closes = [100.0] * 20 + [110.0, 110.0, 120.0, 120.0, 50.0, 50.0]
+        df = self._make_stock_data(closes)
+
+        result = Backtester(self._make_config()).run({"AAAA": df})
+        trades = result["trades"]
+
+        assert len(trades) == 1, \
+            f"已持有時不應重複開倉，應只有 1 筆交易，實際 {len(trades)}"
 
 
 # ══════════════════════════════════════════════
