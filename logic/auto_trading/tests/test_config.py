@@ -35,7 +35,7 @@ class TestTradingConfigDefaults:
         assert self.cfg.transaction_tax == 0.003
 
     def test_slippage_default(self):
-        assert self.cfg.slippage == 0.01
+        assert self.cfg.slippage == 0.001
 
     # ── 指標參數 ──
     def test_breakout_window_default(self):
