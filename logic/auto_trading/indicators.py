@@ -63,8 +63,8 @@ class Indicators:
         df["MA_Slow"]  = Indicators.sma(c, cfg.ma_slow)
         df["High_N"]   = Indicators.rolling_max(c, cfg.breakout_window)
         df["Low_N"]    = Indicators.rolling_min(c, cfg.breakout_window)
-        df["High_52W"] = Indicators.rolling_max(c, cfg.week52)
-        df["Low_52W"]  = Indicators.rolling_min(c, cfg.week52)
+        df["High_52W"] = Indicators.rolling_max(df["High"], cfg.week52)
+        df["Low_52W"]  = Indicators.rolling_min(df["Low"],  cfg.week52)
 
         # 成交金額（若有 Amount 欄使用之，否則以 Volume × Close 估算）
         if "Amount" in df.columns:

@@ -178,7 +178,7 @@ class Backtester:
             for ticker in candidates:
                 if available_slots <= len(pending_entries):
                     break
-                if ticker in effective_held or ticker in {e[0] for e in pending_entries}:
+                if ticker in effective_held or ticker in pending_exit_tickers or ticker in {e[0] for e in pending_entries}:
                     continue
                 df = data.get(ticker)
                 if df is None or date not in df.index or prev_date not in df.index:
@@ -297,11 +297,12 @@ class Backtester:
         equity:          float,
     ) -> list[Position]:
         new_positions: list[Position] = []
+        initial_held_count = len(held_tickers)
 
         for ticker, direction, atr_at_signal in pending_entries:
             if ticker in held_tickers:
                 continue
-            if len(held_tickers) + len(new_positions) >= self.cfg.max_positions:
+            if initial_held_count + len(new_positions) >= self.cfg.max_positions:
                 break
 
             df = data.get(ticker)
