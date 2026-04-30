@@ -93,9 +93,12 @@ class TestTradingConfigCustom:
         cfg = TradingConfig(max_positions=20)
         assert cfg.max_positions == 20
 
-    def test_custom_backtest_range(self):
-        cfg = TradingConfig(backtest_start="2015-01-01", backtest_end="2020-12-31")
+    def test_custom_backtest_start(self):
+        cfg = TradingConfig(backtest_start="2015-01-01")
         assert cfg.backtest_start == "2015-01-01"
+
+    def test_custom_backtest_end(self):
+        cfg = TradingConfig(backtest_end="2020-12-31")
         assert cfg.backtest_end == "2020-12-31"
 
     def test_multiple_custom_params(self):
@@ -117,17 +120,59 @@ class TestTradingConfigTypes:
     def setup_method(self):
         self.cfg = TradingConfig()
 
+    # ── float 欄位 ──
     def test_initial_equity_is_float(self):
         assert isinstance(self.cfg.initial_equity, float)
 
+    def test_risk_pct_is_float(self):
+        assert isinstance(self.cfg.risk_pct, float)
+
+    def test_commission_rate_is_float(self):
+        assert isinstance(self.cfg.commission_rate, float)
+
+    def test_transaction_tax_is_float(self):
+        assert isinstance(self.cfg.transaction_tax, float)
+
+    def test_slippage_is_float(self):
+        assert isinstance(self.cfg.slippage, float)
+
+    def test_atr_multiplier_is_float(self):
+        assert isinstance(self.cfg.atr_multiplier, float)
+
+    def test_min_avg_amount_is_float(self):
+        assert isinstance(self.cfg.min_avg_amount, float)
+
+    def test_max_trade_cost_is_float(self):
+        assert isinstance(self.cfg.max_trade_cost, float)
+
+    def test_point_value_is_float(self):
+        assert isinstance(self.cfg.point_value, float)
+
+    # ── int 欄位 ──
     def test_breakout_window_is_int(self):
         assert isinstance(self.cfg.breakout_window, int)
+
+    def test_ma_fast_is_int(self):
+        assert isinstance(self.cfg.ma_fast, int)
+
+    def test_ma_slow_is_int(self):
+        assert isinstance(self.cfg.ma_slow, int)
+
+    def test_atr_period_is_int(self):
+        assert isinstance(self.cfg.atr_period, int)
+
+    def test_week52_is_int(self):
+        assert isinstance(self.cfg.week52, int)
 
     def test_max_positions_is_int(self):
         assert isinstance(self.cfg.max_positions, int)
 
+    # ── str 欄位 ──
     def test_backtest_start_is_str(self):
         assert isinstance(self.cfg.backtest_start, str)
+
+    def test_backtest_end_is_str(self):
+        assert isinstance(self.cfg.backtest_end, str)
 
 
 class TestTradingConfigLogic:
@@ -139,10 +184,9 @@ class TestTradingConfigLogic:
         assert cfg.ma_fast < cfg.ma_slow
 
     def test_risk_per_trade_calculation(self):
-        """每筆風險金額 = initial_equity × risk_pct"""
+        """每筆風險金額 = cfg.initial_equity × cfg.risk_pct"""
         cfg = TradingConfig(initial_equity=1_000_000, risk_pct=0.002)
-        expected_risk = 1_000_000 * 0.002  # 2000 元
-        assert expected_risk == 2000.0
+        assert cfg.initial_equity * cfg.risk_pct == pytest.approx(2000.0)
 
     def test_week52_greater_than_ma_slow(self):
         """52週均線週期應大於慢線均線週期"""
