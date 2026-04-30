@@ -22,14 +22,13 @@ class UniverseFilter:
 
     篩選條件：
       1. 20 日平均成交金額 >= min_avg_amount（流動性門檻）
-      2. 收盤價在 52 週最高價的 90% 以上（近強勢新高）
-      3. 收盤價 × 1000 <= initial_equity（買得起至少 1 張）
+      2. 今日 High > 昨日 High_52W 或 今日 Low < 昨日 Low_52W（52 週突破）
+      3. 收盤價 × 1000 <= max_trade_cost（單倉買得起至少 1 張）
     """
 
     def __init__(self, cfg: TradingConfig) -> None:
         self.cfg = cfg
-        # 最高可負擔股價：1 張（1000股）不超過全部資金
-        self._max_price: float = cfg.initial_equity / 1000
+        self._max_price: float = cfg.max_trade_cost / 1000
 
     def filter(
         self,
@@ -54,14 +53,19 @@ class UniverseFilter:
             if date not in df.index:
                 continue
 
-            row = df.loc[date]
-            # 若有重複日期，df.loc 回傳 DataFrame，取最後一列
+            idx = df.index.get_loc(date)
+            if idx == 0:
+                continue  # 無前一日，無法判斷 52 週突破
+
+            row      = df.iloc[idx]
+            prev_row = df.iloc[idx - 1]
+
             if isinstance(row, pd.DataFrame):
                 row = row.iloc[-1]
 
             if not self._liquidity_ok(row):
                 continue
-            if not self._near_52w_high(row):
+            if not self._52w_breakout(row, prev_row):
                 continue
             if not self._affordable(row):
                 continue
@@ -79,15 +83,18 @@ class UniverseFilter:
             return False
         return float(val) >= self.cfg.min_avg_amount
 
-    def _near_52w_high(self, row: pd.Series) -> bool:
-        """收盤是否在 52 週高點的 90% 以上"""
-        high_52w = row.get("High_52W")
-        if pd.isna(high_52w) or float(high_52w) <= 0:
-            return False
-        return float(row["Close"]) >= float(high_52w) * 0.90
+    def _52w_breakout(self, row: pd.Series, prev_row: pd.Series) -> bool:
+        """今日 High > 昨日 High_52W 或 今日 Low < 昨日 Low_52W"""
+        high_52w = prev_row.get("High_52W")
+        low_52w  = prev_row.get("Low_52W")
+
+        breakout_high = (not pd.isna(high_52w)) and float(row["High"]) > float(high_52w)
+        breakout_low  = (not pd.isna(low_52w))  and float(row["Low"])  < float(low_52w)
+
+        return breakout_high or breakout_low
 
     def _affordable(self, row: pd.Series) -> bool:
-        """股價是否在資金可負擔範圍內（1 張 = 1000 股 <= initial_equity）"""
+        """收盤 × 1000 <= max_trade_cost（單倉最高成本）"""
         close = row.get("Close")
         if pd.isna(close):
             return False
