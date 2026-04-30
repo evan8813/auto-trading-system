@@ -139,6 +139,22 @@ class TestShortEntry:
         prev_row = make_row(Low_N=np.nan)
         assert not SignalGenerator.short_entry(row, prev_row)
 
+    def test_no_trigger_when_close_equals_low_n(self):
+        """收盤等於 Low_N（非跌破，需嚴格小於）"""
+        row      = make_row(Close=92.0, MA_Fast=90.0, MA_Slow=100.0)
+        prev_row = make_row(Low_N=92.0)
+        assert not SignalGenerator.short_entry(row, prev_row)
+
+    def test_nan_ma_fast_returns_false(self):
+        row      = make_row(Close=88.0, MA_Fast=np.nan, MA_Slow=100.0)
+        prev_row = make_row(Low_N=92.0)
+        assert not SignalGenerator.short_entry(row, prev_row)
+
+    def test_nan_ma_slow_returns_false(self):
+        row      = make_row(Close=88.0, MA_Fast=90.0, MA_Slow=np.nan)
+        prev_row = make_row(Low_N=92.0)
+        assert not SignalGenerator.short_entry(row, prev_row)
+
 
 class TestShortExit:
     """short_exit(row, trail_low, atr_mult)"""
