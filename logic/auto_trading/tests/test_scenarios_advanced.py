@@ -68,8 +68,13 @@ def make_df(dates, closes, volume: float = 100_000_000.0) -> pd.DataFrame:
 
 
 def uptrend(n: int, base: float = 10.0, rate: float = 0.01) -> np.ndarray:
-    """嚴格上升趨勢：每日 +rate，觸發進場訊號（突破 + MA 上穿）"""
-    return base * ((1 + rate) ** np.arange(n))
+    """上升 80% 再急跌 20%，確保有進場訊號也有出場訊號（停損觸發）"""
+    rise = int(n * 0.8)
+    fall = n - rise
+    up   = base * ((1 + rate) ** np.arange(rise))
+    peak = up[-1]
+    down = peak * ((1 - rate * 5) ** np.arange(1, fall + 1))
+    return np.concatenate([up, down])
 
 
 def downtrend(n: int, base: float = 10.0, rate: float = 0.01) -> np.ndarray:
