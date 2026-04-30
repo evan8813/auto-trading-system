@@ -31,7 +31,7 @@ class TradingConfig:
     week52: int = 252                        # 52 週交易日
 
     # ── 篩選條件 ──
-    min_avg_amount: float = 5_000_000        # 最低 20 日平均成交金額（元）
+    min_avg_amount: float = 5_000_000.0      # 最低 20 日平均成交金額（元）
 
     # ── 回測區間 ──
     backtest_start: str = "2010-01-01"
