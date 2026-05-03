@@ -209,34 +209,38 @@ class TestScenario8T1Halt:
 
 
 # ══════════════════════════════════════════════
-# 情境 S9：max_trade_cost 截斷 — 高股價時張數正確壓縮
+# 情境 S9：動態單倉上限截斷 — equity / max_positions 限制張數
 # ══════════════════════════════════════════════
-# 已知 bug 來源：
-#   C check 原本未套用 max_trade_cost，導致誤報 FAIL。
-#   這個情境驗證 backtester 的張數計算確實被截斷。
+# 驗證 backtester 的動態單倉上限（equity / max_positions）確實截斷張數。
 #
 # 設計：
-#   股價 ~100 元，risk_pct=0.10 → lots_raw = 25 張。
-#   max_trade_cost = 120,000 → 最多 1 張（100×1000=100,000 < 120,000）。
-#   預期：所有交易的 lots ≤ 1。
+#   initial_equity=1,000,000  max_positions=10
+#     → dynamic_max_cost = 100,000
+#   risk_pct=0.05  max_risk_amount=200,000
+#     → risk = min(50,000, 200,000) = 50,000
+#   股價 ~10 元，ATR ≈ 10 × 0.04 = 0.4
+#     → lots_raw = int(50,000 / (3 × 0.4 × 1000)) = 41 張
+#     → entry_cost = 41 × 10 × 1000 = 410,000 >> 100,000 (上限觸發)
+#     → lots_capped = int(100,000 / (10 × 1,000)) = 10 張
+#   預期：所有交易的 lots ≤ floor(dynamic_max_cost / (price × 1000))。
 # ══════════════════════════════════════════════
 
 class TestScenario9MaxTradeCostCap:
 
     def setup_method(self):
         self.cfg = scenario_cfg(
-            initial_equity = 1_000_000,
-            risk_pct       = 0.10,        # risk_amount = 100,000 → lots_raw = 25
-            max_trade_cost = 120_000,     # 100 × 1000 = 100,000 < 120,000 → 1 張
-            max_positions  = 3,
-            backtest_end   = "2020-08-31",
+            initial_equity  = 1_000_000,
+            risk_pct        = 0.05,          # risk = 50,000（未被 2,500 預設蓋掉）
+            max_risk_amount = 200_000,        # 放寬上限，讓 lots_raw 夠大
+            max_positions   = 10,            # dynamic_max_cost = 100,000
+            backtest_end    = "2020-08-31",
         )
         n     = 150
         dates = pd.bdate_range("2020-01-01", periods=n)
 
-        # 股價 100 元持續上漲，ATR ≈ 100 × 0.04 = 4
+        # 股價 ~10 元，ATR ≈ 0.4，lots_raw ≈ 41（遠超單倉上限）
         self.data = {
-            "PRICEY": make_df(dates, uptrend(n, base=100.0, rate=0.005)),
+            "PRICEY": make_df(dates, uptrend(n, base=10.0, rate=0.005)),
         }
         self.results = Backtester(self.cfg).run(self.data)
         self.trades  = self.results["trades"]
@@ -244,26 +248,27 @@ class TestScenario9MaxTradeCostCap:
     def test_has_trades(self):
         assert not self.trades.empty, "應有交易"
 
-    def test_lots_capped_to_one(self):
+    def test_lots_capped_by_dynamic_cost(self):
         """
-        股價 ~100 元時，max_trade_cost=120,000 只能買 1 張。
-        若 backtester 未套用 max_trade_cost 截斷，lots 會是 25。
+        動態單倉上限 = equity / max_positions = 1,000,000 / 10 = 100,000。
+        lots_raw ≈ 41，截斷後應 ≤ floor(100,000 / (price × 1000))。
+        若 backtester 未套用動態上限，lots 會維持 41 張（超出上限 4 倍）。
         """
+        dynamic_max_cost = self.cfg.initial_equity / self.cfg.max_positions
         for _, trade in self.trades.iterrows():
-            lots    = int(trade["lots"])
-            price   = float(trade["raw_entry_price"])
-            # 最多允許 floor(max_trade_cost / (price * 1000)) 張
-            max_lots = max(int(self.cfg.max_trade_cost / (price * 1000)), 0)
-            assert lots <= max(max_lots, 1), (
-                f"lots={lots} 超過 max_trade_cost 上限 {max_lots} 張"
-                f"（raw_entry={price:.2f}，max_trade_cost={self.cfg.max_trade_cost}）"
+            lots     = int(trade["lots"])
+            price    = float(trade["raw_entry_price"])
+            max_lots = max(int(dynamic_max_cost / (price * 1000)), 1)
+            assert lots <= max_lots, (
+                f"lots={lots} 超過動態單倉上限 {max_lots} 張"
+                f"（raw_entry={price:.2f}，dynamic_max_cost={dynamic_max_cost:.0f}）"
             )
 
     def test_lots_at_least_one(self):
         """截斷後 lots 應 >= 1（確認截斷邏輯沒有歸零）"""
         for _, trade in self.trades.iterrows():
             assert int(trade["lots"]) >= 1, (
-                f"lots=0，max_trade_cost 截斷後不應為 0（stock 股價合理、資金充足）"
+                f"lots=0，動態上限截斷後不應為 0（股價合理、資金充足）"
             )
 
 

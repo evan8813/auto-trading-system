@@ -355,7 +355,7 @@ class Backtester:
                 trail_high       = entry_price,
                 trail_low        = entry_price,
                 atr_at_entry     = atr_at_signal,
-                equity_at_entry  = equity,       # 進場時可用資金
+                equity_at_entry  = total_equity, # 進場時總淨值
             )
             new_positions.append(pos)
             held_tickers.add(ticker)
