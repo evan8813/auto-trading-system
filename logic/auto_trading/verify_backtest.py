@@ -173,8 +173,14 @@ def run_method_b():
         check(sig_row["Avg_Amount_20"] >= cfg.min_avg_amount,
               f"[Filter] 20D AvgAmt({sig_row['Avg_Amount_20']:.0f}) >= {cfg.min_avg_amount:.0f}"),
 
-        check(sig_row["Close"] >= sig_row["High_52W"] * 0.90,
-              f"[Filter] Close({sig_row['Close']:.2f}) >= 52W High({sig_row['High_52W']:.2f}) x 90%"),
+        check(
+            sig_row["High"] > float(prev_row.get("High_52W", float("nan"))) or
+            sig_row["Low"]  < float(prev_row.get("Low_52W",  float("nan"))),
+            f"[Filter] 52W breakout: High({sig_row['High']:.2f}) > prev High_52W"
+            f"({float(prev_row.get('High_52W', float('nan'))):.2f})"
+            f" OR Low({sig_row['Low']:.2f}) < prev Low_52W"
+            f"({float(prev_row.get('Low_52W', float('nan'))):.2f})",
+        ),
     ]
 
     passed = sum(results_list)
@@ -364,8 +370,8 @@ def audit_step1_filter(
 
     for check_date in check_dates:
         print(f"\n  Date: {check_date.date()}")
-        print(f"  {'Ticker':<8} {'Close':>8} {'20D AvgAmt':>14} {'52W High':>10} "
-              f"{'C/52W%':>8} {'AmtOK':>6} {'NearOK':>7} {'Selected':>9}")
+        print(f"  {'Ticker':<8} {'Close':>8} {'20D AvgAmt':>14} {'prevHi52W':>10} "
+              f"{'Breakout':>8} {'AmtOK':>6} {'BrkOK':>7} {'Selected':>9}")
         print(f"  {'-'*75}")
 
         for ticker, df_raw in sorted(data.items()):
@@ -378,14 +384,23 @@ def audit_step1_filter(
 
             close     = row["Close"]
             avg_amt   = row.get("Avg_Amount_20", float("nan"))
-            high52    = row.get("High_52W",      float("nan"))
-            ratio     = (close / high52 * 100) if high52 > 0 else float("nan")
-            amt_ok    = avg_amt >= cfg.min_avg_amount
-            near_ok   = close >= high52 * 0.90
-            selected  = amt_ok and near_ok
+            # 52W 突破：用昨日的 High_52W / Low_52W（需要前一列）
+            idx = df.index.get_loc(check_date)
+            if idx > 0:
+                prev = df.iloc[idx - 1]
+                high52w_prev = float(prev.get("High_52W", float("nan")))
+                low52w_prev  = float(prev.get("Low_52W",  float("nan")))
+                brk_high = (not pd.isna(high52w_prev)) and row["High"] > high52w_prev
+                brk_low  = (not pd.isna(low52w_prev))  and row["Low"]  < low52w_prev
+                near_ok  = brk_high or brk_low
+            else:
+                high52w_prev = float("nan")
+                near_ok = False
+            amt_ok   = avg_amt >= cfg.min_avg_amount
+            selected = amt_ok and near_ok
 
-            print(f"  {ticker:<8} {close:>8.2f} {avg_amt:>14,.0f} {high52:>10.2f} "
-                  f"{ratio:>7.1f}% {str(amt_ok):>6} {str(near_ok):>7} {str(selected):>9}")
+            print(f"  {ticker:<8} {close:>8.2f} {avg_amt:>14,.0f} {high52w_prev:>10.2f} "
+                  f"{'BRK' if near_ok else '-':>7} {str(amt_ok):>6} {str(near_ok):>7} {str(selected):>9}")
 
 
 def audit_step2_entries(
@@ -508,16 +523,19 @@ def audit_step4_position_size(
     for _, t in trades.iterrows():
         equity    = t.get("equity_at_entry", float("nan"))
         atr       = t["atr_at_entry"]
-        risk_amt  = equity * cfg.risk_pct
-        theo_lots = risk_amt / atr if atr > 0 else float("nan")
+        # 新公式：risk = min(equity × risk_pct, max_risk_amount)
+        # lots = int(risk / (atr_multiplier × ATR × 1000))
+        risk_amt  = min(equity * cfg.risk_pct, cfg.max_risk_amount)
+        stop_dist = cfg.atr_multiplier * atr
+        theo_lots = risk_amt / (stop_dist * 1000) if stop_dist > 0 else float("nan")
         actual    = t["lots"]
         shares    = t["shares"]
 
         print(f"  {t['ticker']:<8} {equity:>12,.0f} {atr:>7.4f} {risk_amt:>10.2f} "
-              f"{theo_lots:>9.1f} {actual:>11} {shares:>8}")
+              f"{theo_lots:>9.2f} {actual:>11} {shares:>8}")
 
-    print(f"\n  Formula: RiskAmt = Equity x {cfg.risk_pct*100:.1f}%,  "
-          f"TheoLots = RiskAmt / ATR / 1000,  ActualLots = int(TheoLots)")
+    print(f"\n  Formula: RiskAmt = min(Equity × {cfg.risk_pct*100:.1f}%, {cfg.max_risk_amount:,.0f}),  "
+          f"TheoLots = RiskAmt / ({cfg.atr_multiplier} × ATR × 1000),  ActualLots = int(TheoLots)")
 
 
 def audit_step5_costs(
