@@ -126,7 +126,7 @@ class Backtester:
                     deployed  = sum(p.adj_entry_price * p.shares for p in positions)
                     available = max(equity - deployed, 0.0)
                     new_pos   = self._execute_entries(
-                        pending_entries, data, date, held, available)
+                        pending_entries, data, date, held, available, equity)
                     positions.extend(new_pos)
 
             pending_exit_tickers = set()
@@ -159,7 +159,7 @@ class Backtester:
 
             # ── (D) 今日收盤：篩選 + 判斷進場訊號（T+1 執行）──
             prev_date    = all_dates[i - 1] if i > 0 else date
-            candidates   = self.uni_flt.filter(data, date)
+            candidates   = self.uni_flt.filter(data, date, equity=equity)
             held_tickers = {p.ticker for p in positions}
             effective_held = held_tickers - pending_exit_tickers
             available_slots = self.cfg.max_positions - len(effective_held)
@@ -294,7 +294,8 @@ class Backtester:
         data:            dict[str, pd.DataFrame],
         exec_date:       pd.Timestamp,
         held_tickers:    set[str],
-        equity:          float,
+        available:       float,
+        total_equity:    float,
     ) -> list[Position]:
         new_positions: list[Position] = []
         initial_held_count = len(held_tickers)
@@ -316,7 +317,7 @@ class Backtester:
             if pd.isna(entry_price):
                 continue
 
-            lots = self.risk_mgr.position_size_lots(equity, atr_at_signal)
+            lots = self.risk_mgr.position_size_lots(total_equity, atr_at_signal)
             if lots == 0:
                 continue
 
@@ -326,18 +327,19 @@ class Backtester:
                 else entry_price * (1 - self.cfg.slippage)
             )
 
-            # ── 單筆資金上限 ──
+            # ── 單筆資金上限（動態：總淨值 ÷ 最大部位數）──
+            dynamic_max_cost = total_equity / self.cfg.max_positions
             entry_cost = adj_entry * shares
-            if entry_cost > self.cfg.max_trade_cost:
-                lots = max(int(self.cfg.max_trade_cost / (adj_entry * 1000)), 0)
+            if entry_cost > dynamic_max_cost:
+                lots = max(int(dynamic_max_cost / (adj_entry * 1000)), 0)
                 if lots == 0:
                     continue
                 shares     = lots * 1000
                 entry_cost = adj_entry * shares
 
             # ── 可用現金檢查 ──
-            if entry_cost > equity:
-                lots = max(int(equity / (adj_entry * 1000)), 0)
+            if entry_cost > available:
+                lots = max(int(available / (adj_entry * 1000)), 0)
                 if lots == 0:
                     continue
                 shares = lots * 1000
@@ -353,7 +355,7 @@ class Backtester:
                 trail_high       = entry_price,
                 trail_low        = entry_price,
                 atr_at_entry     = atr_at_signal,
-                equity_at_entry  = equity,       # 進場時可用資金
+                equity_at_entry  = total_equity, # 進場時總淨值
             )
             new_positions.append(pos)
             held_tickers.add(ticker)
