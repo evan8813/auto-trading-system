@@ -20,27 +20,51 @@ class RiskManager:
     負責所有風險與成本計算。
 
     核心公式：
-      Risk Amount  = current_equity × risk_pct
-      Position Lots = Risk Amount ÷ (ATR × point_value) ÷ 1000
+      risk_amount  = min(equity × risk_pct, max_risk_amount)
+      lots（主公式）= risk_amount ÷ (atr_multiplier × ATR × point_value × 1000)
+      lots（容忍區）= 主公式給 0 但 1 張風險 ≤ equity × 2% 時，進 1 張
     """
 
     def __init__(self, cfg: TradingConfig) -> None:
         self.cfg = cfg
 
     def risk_amount(self, equity: float) -> float:
-        """每筆交易可承擔的最大損失金額（元）"""
-        return equity * self.cfg.risk_pct
+        """
+        每筆交易可承擔的最大損失金額（元）。
+        上限 max_risk_amount：防止資產大幅成長後單筆風險失控。
+        """
+        return min(equity * self.cfg.risk_pct, self.cfg.max_risk_amount)
 
     def position_size_lots(self, equity: float, atr: float) -> int:
         """
         計算部位大小（張數，1 張 = 1000 股）。
-        ATR 越大 → 張數越少（波動大時自動縮小部位）。
-        回傳 0 表示此筆交易不符合下單條件。
+
+        主公式：使用完整停損距離（atr_multiplier × ATR），
+                確保打到停損時實際虧損 = risk_amount（= equity × risk_pct）。
+
+        容忍區：主公式給 0 張，但 1 張風險 ≤ equity × 2% 時，
+                仍進 1 張（資本不足時的最低單位保護）。
+                隨 equity 成長，1% 公式自然給出 ≥ 1 張，容忍區逐漸不觸發。
+
+        回傳 0：波動太大或 ATR <= 0，跳過此筆。
         """
         if not (atr > 0):
             return 0
-        raw_shares = self.risk_amount(equity) / (atr * self.cfg.point_value)
-        return max(int(raw_shares / 1000), 0)
+
+        stop_distance = self.cfg.atr_multiplier * atr * self.cfg.point_value
+        risk          = self.risk_amount(equity)
+
+        # 主公式
+        lots = int(risk / (stop_distance * 1000))
+        if lots >= 1:
+            return lots
+
+        # 容忍區：1 張實際風險 ≤ 2% of equity → 進 1 張
+        one_lot_risk = stop_distance * 1000
+        if one_lot_risk <= equity * self.cfg.risk_pct * 2:
+            return 1
+
+        return 0
 
     def transaction_cost(self, price: float, shares: int, side: str) -> float:
         """

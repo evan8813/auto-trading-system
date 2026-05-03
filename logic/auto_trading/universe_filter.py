@@ -23,17 +23,17 @@ class UniverseFilter:
     篩選條件：
       1. 20 日平均成交金額 >= min_avg_amount（流動性門檻）
       2. 今日 High > 昨日 High_52W 或 今日 Low < 昨日 Low_52W（52 週突破）
-      3. 收盤價 × 1000 <= max_trade_cost（單倉買得起至少 1 張）
+      3. 收盤 × 1000 <= equity / max_positions（單倉動態上限，買得起至少 1 張）
     """
 
     def __init__(self, cfg: TradingConfig) -> None:
         self.cfg = cfg
-        self._max_price: float = cfg.max_trade_cost / 1000
 
     def filter(
         self,
         data_dict: dict[str, pd.DataFrame],
         date:      pd.Timestamp,
+        equity:    float,
     ) -> list[str]:
         """
         回傳在指定日期符合所有篩選條件的股票代號。
@@ -42,11 +42,13 @@ class UniverseFilter:
         ----------
         data_dict : 已附加指標的 OHLCV dict（key = ticker）
         date      : 當日日期
+        equity    : 當日總淨值（用於計算動態單倉上限）
 
         Returns
         -------
         list[str]  符合條件的股票代號清單
         """
+        max_price = equity / (self.cfg.max_positions * 1000)
         candidates: list[str] = []
 
         for ticker, df in data_dict.items():
@@ -67,7 +69,7 @@ class UniverseFilter:
                 continue
             if not self._52w_breakout(row, prev_row):
                 continue
-            if not self._affordable(row):
+            if not self._affordable(row, max_price):
                 continue
 
             candidates.append(ticker)
@@ -93,9 +95,9 @@ class UniverseFilter:
 
         return breakout_high or breakout_low
 
-    def _affordable(self, row: pd.Series) -> bool:
-        """收盤 × 1000 <= max_trade_cost（單倉最高成本）"""
+    def _affordable(self, row: pd.Series, max_price: float) -> bool:
+        """收盤 × 1000 <= equity / max_positions（單倉動態上限）"""
         close = row.get("Close")
         if pd.isna(close):
             return False
-        return float(close) <= self._max_price
+        return float(close) <= max_price

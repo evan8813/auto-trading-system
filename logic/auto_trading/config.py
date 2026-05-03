@@ -16,6 +16,7 @@ class TradingConfig:
     # ── 資金設定 ──
     initial_equity: float = 180_000.0         # 初始資金（新台幣）
     risk_pct: float = 0.01                   # 每筆風險比例（1% → 每筆最多虧 1,800 元）
+    max_risk_amount: float = 2_500.0          # 單筆風險金額硬上限（元），防止資產暴增後風險失控
 
     # ── 交易成本 ──
     commission_rate: float = 0.001425        # 手續費率（買賣各）
