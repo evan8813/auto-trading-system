@@ -27,7 +27,7 @@ from checkpoint import run_checkpoint, sample_period
 # ══════════════════════════════════════════════
 
 # 資料路徑
-DATA_FOLDER = r"C:\Users\USER\Desktop\jupyter\TW-stock\stock_full"
+DATA_FOLDER = r"C:\Users\USER\Desktop\jupyter\TW-stock\stocks_full"
 
 # 要抽查的信號日（可加任意多個）
 SAMPLE_DATES = [
