@@ -119,8 +119,9 @@ def check_trades(
 
         df = data.get(ticker)
 
-        # A. 在選股池內？（訊號日 T 的選股池）
-        candidates = uni_flt.filter(data, signal_date) if signal_date else []
+        # A. 在選股池內？（訊號日 T 的選股池，用進場時淨值）
+        equity = float(trade.get("equity_at_entry", cfg.initial_equity))
+        candidates = uni_flt.filter(data, signal_date, equity=equity) if signal_date else []
         in_pool    = ticker in candidates
 
         # B. 進場訊號觸發？（T 日收盤 vs T-1 日指標）
