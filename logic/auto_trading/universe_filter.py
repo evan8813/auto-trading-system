@@ -55,7 +55,16 @@ class UniverseFilter:
             if date not in df.index:
                 continue
 
-            idx = df.index.get_loc(date)
+            loc = df.index.get_loc(date)
+            # get_loc 在重複索引時回傳 slice 或 ndarray，統一轉成整數
+            if isinstance(loc, slice):
+                idx = loc.stop - 1
+            elif hasattr(loc, '__len__'):
+                import numpy as np
+                idx = int(np.where(loc)[0][-1])
+            else:
+                idx = int(loc)
+
             if idx == 0:
                 continue  # 無前一日，無法判斷 52 週突破
 
