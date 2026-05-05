@@ -50,6 +50,16 @@ class Indicators:
     # ── 批次附加（供 Backtester 呼叫）────────
 
     @staticmethod
+    def macd(series: pd.Series, fast: int, slow: int, signal: int
+             ) -> tuple[pd.Series, pd.Series]:
+        """MACD 線與 Signal 線（EMA-based）"""
+        ema_fast   = series.ewm(span=fast,   adjust=False).mean()
+        ema_slow   = series.ewm(span=slow,   adjust=False).mean()
+        macd_line  = ema_fast - ema_slow
+        signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+        return macd_line, signal_line
+
+    @staticmethod
     def add_all(df: pd.DataFrame, cfg: TradingConfig) -> pd.DataFrame:
         """
         複製 DataFrame 並附加所有策略所需指標欄位。
@@ -58,13 +68,18 @@ class Indicators:
         df = df.copy()
         c  = df["Close"]
 
-        df["ATR"]      = Indicators.atr(df, cfg.atr_period)
-        df["MA_Fast"]  = Indicators.sma(c, cfg.ma_fast)
-        df["MA_Slow"]  = Indicators.sma(c, cfg.ma_slow)
-        df["High_N"]   = Indicators.rolling_max(c, cfg.breakout_window)
-        df["Low_N"]    = Indicators.rolling_min(c, cfg.breakout_window)
-        df["High_52W"] = Indicators.rolling_max(df["High"], cfg.week52)
-        df["Low_52W"]  = Indicators.rolling_min(df["Low"],  cfg.week52)
+        df["ATR"]       = Indicators.atr(df, cfg.atr_period)
+        df["High_N"]    = Indicators.rolling_max(c, cfg.breakout_window)
+        df["Low_N"]     = Indicators.rolling_min(c, cfg.breakout_window)
+        df["High_Stop"] = Indicators.rolling_max(df["High"], cfg.stop_window)
+        df["Low_Stop"]  = Indicators.rolling_min(df["Low"],  cfg.stop_window)
+        df["High_52W"]  = Indicators.rolling_max(df["High"], cfg.week52)
+        df["Low_52W"]   = Indicators.rolling_min(df["Low"],  cfg.week52)
+
+        macd_line, signal_line = Indicators.macd(
+            c, cfg.macd_fast, cfg.macd_slow, cfg.macd_signal)
+        df["MACD"]        = macd_line
+        df["MACD_signal"] = signal_line
 
         # 成交金額（若有 Amount 欄使用之，否則以 Volume × Close 估算）
         if "Amount" in df.columns:
