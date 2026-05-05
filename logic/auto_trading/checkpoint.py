@@ -441,6 +441,7 @@ def run_checkpoint(
     raw_data:     dict[str, pd.DataFrame],
     cfg:          TradingConfig,
     sample_dates: list[str] | None = None,
+    verbose:      bool = False,
 ) -> None:
     """
     執行兩個 checkpoint 並印出結果。
@@ -453,6 +454,10 @@ def run_checkpoint(
     sample_dates : 要抽查的選股日期清單（字串），None = 自動取每季第一天
     """
     trades = results.get("trades", pd.DataFrame())
+
+    if not verbose:
+        return
+
     data   = {t: Indicators.add_all(df, cfg) for t, df in raw_data.items()}
 
     print("\n" + "=" * 60)
@@ -477,7 +482,7 @@ def run_checkpoint(
     uni_flt = UniverseFilter(cfg)
     for date_str in sample_dates:
         date       = pd.Timestamp(date_str)
-        candidates = uni_flt.filter(data, date)
+        candidates = uni_flt.filter(data, date, equity=cfg.initial_equity)
         cp1        = check_universe(data, date, candidates, cfg)
 
         fail_count = (~cp1["ALL_PASS"]).sum() if not cp1.empty else 0
@@ -603,7 +608,7 @@ def sample_period(
     # ── 1. 選股池 ──────────────────────────────
     uni_flt    = UniverseFilter(cfg)
     sig_gen    = SignalGenerator()
-    candidates = uni_flt.filter(data, date)
+    candidates = uni_flt.filter(data, date, equity=cfg.initial_equity)
     pool_df    = check_universe(data, date, candidates, cfg)
 
     if pool_df.empty:

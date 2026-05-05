@@ -31,9 +31,9 @@ class Reporter:
     @staticmethod
     def print_metrics(metrics: dict) -> None:
         """在終端機印出績效摘要"""
-        print("\n" + "═" * 48)
-        print("  📊  回測績效報告")
-        print("═" * 48)
+        print("\n" + "=" * 48)
+        print("  回測績效報告")
+        print("=" * 48)
         print(f"  總報酬率        : {metrics['total_return_pct']:>9.2f} %")
         print(f"  年化報酬 (CAGR) : {metrics['cagr_pct']:>9.2f} %")
         print(f"  最大回撤 (MDD)  : {metrics['max_drawdown_pct']:>9.2f} %")
@@ -42,7 +42,7 @@ class Reporter:
         print(f"  平均獲利 / 筆   : {metrics['avg_win']:>9.0f} 元")
         print(f"  平均虧損 / 筆   : {metrics['avg_loss']:>9.0f} 元")
         print(f"  獲利因子        : {metrics['profit_factor']:>9.3f}")
-        print("═" * 48 + "\n")
+        print("=" * 48 + "\n")
 
     # ── CSV 交易紀錄 ──────────────────────────
 

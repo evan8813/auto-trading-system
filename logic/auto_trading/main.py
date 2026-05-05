@@ -9,14 +9,19 @@ main.py
   python main.py                                   # 合成資料測試
   python main.py /path/to/csv_folder               # 載入所有股票
   python main.py /path/to/csv_folder 2330 2317     # 指定股票
+  python main.py /path/to/csv_folder --verbose     # 顯示詳細驗證輸出
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
+
+# 壓掉 matplotlib 中文字型缺字的 UserWarning
+warnings.filterwarnings("ignore", message=".*Glyph.*missing from font.*")
 
 from backtester import Backtester
 from checkpoint import run_checkpoint
@@ -37,6 +42,7 @@ def run_backtest(
     tickers:     Optional[list[str]] = None,
     cfg:         Optional[TradingConfig] = None,
     output_dir:  str = "output",
+    verbose:     bool = False,
 ) -> dict:
     """
     執行回測的主入口。
@@ -92,8 +98,8 @@ def run_backtest(
         path=str(out / "trade_log.csv"),
     )
 
-    # 終端機預覽最後 10 筆交易
-    if not results["trades"].empty:
+    # ── 4. Checkpoint 驗證（--verbose 時才顯示）──
+    if verbose:
         display_cols = [
             "ticker", "direction", "lots",
             "entry_date", "exit_date", "hold_days",
@@ -102,18 +108,21 @@ def run_backtest(
             "pnl_net", "exit_reason",
         ]
         cols = [c for c in display_cols if c in results["trades"].columns]
-        print("\n  最近 10 筆交易：")
-        print(results["trades"][cols].tail(10).to_string(index=False))
+        if not results["trades"].empty:
+            print("\n  最近 10 筆交易：")
+            print(results["trades"][cols].tail(10).to_string(index=False))
 
-    # ── 4. Checkpoint 驗證 ──
-    run_checkpoint(results, data, cfg)
+    run_checkpoint(results, data, cfg, verbose=verbose)
 
     return results
 
 
 if __name__ == "__main__":
-    folder  = sys.argv[1] if len(sys.argv) > 1 else None
-    symbols = sys.argv[2:] if len(sys.argv) > 2 else None
+    args    = sys.argv[1:]
+    verbose = "--verbose" in args
+    args    = [a for a in args if a != "--verbose"]
+    folder  = args[0] if len(args) > 0 else None
+    symbols = args[1:] if len(args) > 1 else None
 
     cfg = TradingConfig(
         initial_equity  = 180_000,        # 初始資金 18 萬（可負擔最多 1 張 180 元以下股票）
@@ -133,4 +142,5 @@ if __name__ == "__main__":
         tickers     = symbols,
         cfg         = cfg,
         output_dir  = "output",
+        verbose     = verbose,
     )
