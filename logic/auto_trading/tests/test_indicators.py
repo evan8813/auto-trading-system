@@ -4,11 +4,12 @@ test_indicators.py
 步驟 3：驗證技術指標計算邏輯。
 
 測試項目：
-  1. sma()   ── 簡單移動平均數值正確
-  2. atr()   ── ATR 計算使用正確的 True Range 公式
+  1. sma()         ── 簡單移動平均數值正確
+  2. atr()         ── ATR 計算使用正確的 True Range 公式
   3. rolling_max() / rolling_min() ── 滾動最大/最小值
-  4. add_all() ── 附加所有指標後欄位是否齊全
-  5. 邊界條件：資料長度不足時出現 NaN
+  4. macd()        ── MACD 線與 Signal 線計算正確
+  5. add_all()     ── 附加所有指標後欄位是否齊全
+  6. 邊界條件：資料長度不足時出現 NaN
 """
 
 import pytest
@@ -64,7 +65,6 @@ class TestSMA:
     def test_sma_constant_series(self):
         series = pd.Series([7.0] * 10)
         result = Indicators.sma(series, window=5)
-        # 常數序列的移動平均仍是常數
         valid = result.dropna()
         assert all(v == pytest.approx(7.0) for v in valid)
 
@@ -99,7 +99,6 @@ class TestATR:
         }, index=pd.bdate_range("2023-01-01", periods=2))
 
         # 第 2 日 TR = max(108-103, |108-104|, |103-104|) = max(5, 4, 1) = 5
-        # ATR with period=1 just equals TR (rolling(1).mean() = TR itself)
         result = Indicators.atr(df, period=1)
         assert result.iloc[1] == pytest.approx(5.0)
 
@@ -159,6 +158,44 @@ class TestRollingMaxMin:
         assert list(result) == pytest.approx([9.0, 1.0, 5.0])
 
 
+class TestMACD:
+    """MACD 線與 Signal 線"""
+
+    def test_macd_returns_two_series(self):
+        series = pd.Series(100 + np.cumsum(np.random.default_rng(0).normal(0, 1, 100)))
+        macd_line, signal_line = Indicators.macd(series, fast=12, slow=26, signal=9)
+        assert isinstance(macd_line,   pd.Series)
+        assert isinstance(signal_line, pd.Series)
+
+    def test_macd_length_matches_input(self):
+        series = pd.Series(range(100), dtype=float)
+        macd_line, signal_line = Indicators.macd(series, fast=12, slow=26, signal=9)
+        assert len(macd_line)   == 100
+        assert len(signal_line) == 100
+
+    def test_macd_line_positive_in_uptrend(self):
+        """持續上漲時，快 EMA > 慢 EMA，MACD 應為正"""
+        series = pd.Series(np.linspace(100, 200, 100))
+        macd_line, _ = Indicators.macd(series, fast=12, slow=26, signal=9)
+        # 暖機後的數值應為正
+        assert macd_line.iloc[-1] > 0
+
+    def test_macd_line_negative_in_downtrend(self):
+        """持續下跌時，快 EMA < 慢 EMA，MACD 應為負"""
+        series = pd.Series(np.linspace(200, 100, 100))
+        macd_line, _ = Indicators.macd(series, fast=12, slow=26, signal=9)
+        assert macd_line.iloc[-1] < 0
+
+    def test_macd_fast_must_be_less_than_slow(self):
+        """fast < slow 才有意義：上漲時 MACD > 0"""
+        series = pd.Series(np.linspace(100, 200, 100))
+        macd_line, _ = Indicators.macd(series, fast=12, slow=26, signal=9)
+        assert macd_line.iloc[-1] > 0
+        # 若 fast > slow，上漲時反而 MACD < 0
+        macd_inverted, _ = Indicators.macd(series, fast=26, slow=12, signal=9)
+        assert macd_inverted.iloc[-1] < 0
+
+
 class TestAddAll:
     """Indicators.add_all() 整合測試"""
 
@@ -177,20 +214,47 @@ class TestAddAll:
 
     def test_all_indicator_columns_present(self):
         result = Indicators.add_all(self.df, self.cfg)
-        expected = ["ATR", "MA_Fast", "MA_Slow",
-                    "High_N", "Low_N", "High_52W", "Low_52W", "Avg_Amount_20"]
+        expected = [
+            "ATR", "High_N", "Low_N",
+            "High_Stop", "Low_Stop",
+            "High_52W", "Low_52W",
+            "MACD", "MACD_signal",
+            "Avg_Amount_20",
+        ]
         for col in expected:
             assert col in result.columns, f"缺少欄位：{col}"
+
+    def test_no_ma_fast_or_ma_slow_columns(self):
+        """MA_Fast / MA_Slow 已移除，不應出現"""
+        result = Indicators.add_all(self.df, self.cfg)
+        assert "MA_Fast" not in result.columns
+        assert "MA_Slow" not in result.columns
 
     def test_row_count_unchanged(self):
         result = Indicators.add_all(self.df, self.cfg)
         assert len(result) == len(self.df)
 
-    def test_ma_fast_uses_correct_window(self):
+    def test_high_n_equals_rolling_max_close(self):
         result = Indicators.add_all(self.df, self.cfg)
-        expected_sma = self.df["Close"].rolling(self.cfg.ma_fast).mean()
+        expected = self.df["Close"].rolling(self.cfg.breakout_window).max()
         pd.testing.assert_series_equal(
-            result["MA_Fast"], expected_sma, check_names=False
+            result["High_N"], expected, check_names=False
+        )
+
+    def test_low_stop_equals_rolling_min_low(self):
+        """Low_Stop 是 Low 欄位的 stop_window 滾動最小值"""
+        result = Indicators.add_all(self.df, self.cfg)
+        expected = self.df["Low"].rolling(self.cfg.stop_window).min()
+        pd.testing.assert_series_equal(
+            result["Low_Stop"], expected, check_names=False
+        )
+
+    def test_high_stop_equals_rolling_max_high(self):
+        """High_Stop 是 High 欄位的 stop_window 滾動最大值"""
+        result = Indicators.add_all(self.df, self.cfg)
+        expected = self.df["High"].rolling(self.cfg.stop_window).max()
+        pd.testing.assert_series_equal(
+            result["High_Stop"], expected, check_names=False
         )
 
     def test_avg_amount_20_uses_amount_column(self):
@@ -210,9 +274,13 @@ class TestAddAll:
             result["Avg_Amount_20"], expected, check_names=False
         )
 
-    def test_high_n_equals_rolling_max_close(self):
-        result = Indicators.add_all(self.df, self.cfg)
-        expected = self.df["Close"].rolling(self.cfg.breakout_window).max()
+    def test_macd_column_matches_manual_calculation(self):
+        """MACD 欄位應等於 EMA(fast) - EMA(slow)"""
+        result   = Indicators.add_all(self.df, self.cfg)
+        c        = self.df["Close"]
+        ema_fast = c.ewm(span=self.cfg.macd_fast, adjust=False).mean()
+        ema_slow = c.ewm(span=self.cfg.macd_slow, adjust=False).mean()
+        expected = ema_fast - ema_slow
         pd.testing.assert_series_equal(
-            result["High_N"], expected, check_names=False
+            result["MACD"], expected, check_names=False
         )

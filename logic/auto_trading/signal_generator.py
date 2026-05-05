@@ -5,9 +5,18 @@ signal_generator.py
       只做邏輯判斷，不做下單、部位計算或狀態修改。
 
 擴充指引：
-  - 新增策略（例如 RSI 超賣進場）→ 新增 @staticmethod，
-    在 Backtester._check_entries() 裡呼叫即可。
+  - 新增策略 → 新增 @staticmethod，在 Backtester._check_entries() 裡呼叫即可。
   - 保持純函式風格：輸入 pd.Series，輸出 bool，無副作用。
+
+進出場規格：
+  做多進場：收盤 > 前日 High_N(20)  且  MACD > 0  且  MACD 今 > MACD 昨
+  做多出場（兩段式）：
+    Phase 1  trail_high <= entry_price  →  收盤 < Low_Stop（10 日低）
+    Phase 2  trail_high >  entry_price  →  收盤 < trail_high - atr_mult × ATR
+  做空進場：收盤 < 前日 Low_N(20)   且  MACD < 0  且  MACD 今 < MACD 昨
+  做空出場（兩段式）：
+    Phase 1  trail_low >= entry_price  →  收盤 > High_Stop（10 日高）
+    Phase 2  trail_low <  entry_price  →  收盤 > trail_low + atr_mult × ATR
 """
 
 from __future__ import annotations
@@ -27,47 +36,79 @@ class SignalGenerator:
         """
         做多進場條件：
           1. 當日收盤突破「前一日」的 N 日高點
-          2. MA_Fast > MA_Slow（趨勢向上確認）
+          2. MACD > 0（多頭區間）
+          3. MACD 今 > MACD 昨（MACD 上升中）
         """
         if any(pd.isna([row["Close"], prev_row["High_N"],
-                        row["MA_Fast"], row["MA_Slow"]])):
+                        row["MACD"], prev_row["MACD"]])):
             return False
-        breakout = row["Close"] > prev_row["High_N"]
-        trend    = row["MA_Fast"] > row["MA_Slow"]
-        return breakout and trend
+        breakout     = row["Close"]  > prev_row["High_N"]
+        macd_pos     = row["MACD"]   > 0
+        macd_rising  = row["MACD"]   > prev_row["MACD"]
+        return breakout and macd_pos and macd_rising
 
     @staticmethod
-    def long_exit(row: pd.Series, trail_high: float, atr_mult: float) -> bool:
+    def long_exit(
+        row:         pd.Series,
+        trail_high:  float,
+        atr_mult:    float,
+        entry_price: float,
+    ) -> bool:
         """
-        做多出場條件（追蹤停損）：
-          收盤 < 持倉期間最高價 − atr_mult × ATR
+        做多出場條件（兩段式追蹤停損）：
+          Phase 1（尚未獲利，trail_high <= entry_price）：
+            收盤 < Low_Stop（10 日低點）
+          Phase 2（已有獲利，trail_high > entry_price）：
+            收盤 < trail_high - atr_mult × ATR
         """
-        if pd.isna(row["ATR"]) or pd.isna(row["Close"]):
+        if pd.isna(row["Close"]):
             return False
-        stop = trail_high - atr_mult * row["ATR"]
-        return row["Close"] < stop
+        if trail_high > entry_price:
+            if pd.isna(row["ATR"]):
+                return False
+            return row["Close"] < trail_high - atr_mult * row["ATR"]
+        else:
+            if pd.isna(row["Low_Stop"]):
+                return False
+            return row["Close"] < row["Low_Stop"]
 
     @staticmethod
     def short_entry(row: pd.Series, prev_row: pd.Series) -> bool:
         """
         做空進場條件：
           1. 當日收盤跌破「前一日」的 N 日低點
-          2. MA_Fast < MA_Slow（趨勢向下確認）
+          2. MACD < 0（空頭區間）
+          3. MACD 今 < MACD 昨（MACD 下降中）
         """
         if any(pd.isna([row["Close"], prev_row["Low_N"],
-                        row["MA_Fast"], row["MA_Slow"]])):
+                        row["MACD"], prev_row["MACD"]])):
             return False
-        breakdown = row["Close"] < prev_row["Low_N"]
-        trend     = row["MA_Fast"] < row["MA_Slow"]
-        return breakdown and trend
+        breakdown     = row["Close"]  < prev_row["Low_N"]
+        macd_neg      = row["MACD"]   < 0
+        macd_falling  = row["MACD"]   < prev_row["MACD"]
+        return breakdown and macd_neg and macd_falling
 
     @staticmethod
-    def short_exit(row: pd.Series, trail_low: float, atr_mult: float) -> bool:
+    def short_exit(
+        row:         pd.Series,
+        trail_low:   float,
+        atr_mult:    float,
+        entry_price: float,
+    ) -> bool:
         """
-        做空出場條件（追蹤停損）：
-          收盤 > 持倉期間最低價 + atr_mult × ATR
+        做空出場條件（兩段式追蹤停損）：
+          Phase 1（尚未獲利，trail_low >= entry_price）：
+            收盤 > High_Stop（10 日高點）
+          Phase 2（已有獲利，trail_low < entry_price）：
+            收盤 > trail_low + atr_mult × ATR
         """
-        if pd.isna(row["ATR"]) or pd.isna(row["Close"]):
+        if pd.isna(row["Close"]):
             return False
-        stop = trail_low + atr_mult * row["ATR"]
-        return row["Close"] > stop
+        if trail_low < entry_price:
+            if pd.isna(row["ATR"]):
+                return False
+            return row["Close"] > trail_low + atr_mult * row["ATR"]
+        else:
+            if pd.isna(row["High_Stop"]):
+                return False
+            return row["Close"] > row["High_Stop"]

@@ -308,23 +308,27 @@ def check_execution(
             prev_row = df.loc[prev_signal_date]
             if isinstance(row,      pd.DataFrame): row      = row.iloc[-1]
             if isinstance(prev_row, pd.DataFrame): prev_row = prev_row.iloc[-1]
-            close     = float(row.get("Close",   float("nan")))
-            ma_fast   = float(row.get("MA_Fast", float("nan")))
-            ma_slow   = float(row.get("MA_Slow", float("nan")))
+            close      = float(row.get("Close",      float("nan")))
+            macd_today = float(row.get("MACD",       float("nan")))
+            macd_prev  = float(prev_row.get("MACD",  float("nan")))
             if direction == "long":
-                high_n    = float(prev_row.get("High_N", float("nan")))
-                breakout  = close > high_n
-                trend     = ma_fast > ma_slow
-                d_ok      = breakout and trend
-                d_note    = (f"Close={close:.2f} > prev_High_N={high_n:.2f}({breakout}) "
-                             f"MA_Fast={ma_fast:.2f} > MA_Slow={ma_slow:.2f}({trend})")
+                high_n       = float(prev_row.get("High_N", float("nan")))
+                breakout     = close > high_n
+                macd_pos     = macd_today > 0
+                macd_rising  = macd_today > macd_prev
+                d_ok         = breakout and macd_pos and macd_rising
+                d_note       = (f"Close={close:.2f} > prev_High_N={high_n:.2f}({breakout}) "
+                                f"MACD={macd_today:.4f}>0({macd_pos}) "
+                                f"MACD rising({macd_rising})")
             else:
-                low_n     = float(prev_row.get("Low_N",  float("nan")))
-                breakdown = close < low_n
-                trend     = ma_fast < ma_slow
-                d_ok      = breakdown and trend
-                d_note    = (f"Close={close:.2f} < prev_Low_N={low_n:.2f}({breakdown}) "
-                             f"MA_Fast={ma_fast:.2f} < MA_Slow={ma_slow:.2f}({trend})")
+                low_n        = float(prev_row.get("Low_N",  float("nan")))
+                breakdown    = close < low_n
+                macd_neg     = macd_today < 0
+                macd_falling = macd_today < macd_prev
+                d_ok         = breakdown and macd_neg and macd_falling
+                d_note       = (f"Close={close:.2f} < prev_Low_N={low_n:.2f}({breakdown}) "
+                                f"MACD={macd_today:.4f}<0({macd_neg}) "
+                                f"MACD falling({macd_falling})")
         else:
             d_note = "no signal date data"
 

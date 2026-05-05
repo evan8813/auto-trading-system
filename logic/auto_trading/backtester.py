@@ -151,10 +151,14 @@ class Backtester:
                 if isinstance(row, pd.DataFrame):
                     row = row.iloc[-1]
                 if pos.direction == "long":
-                    if self.sig_gen.long_exit(row, pos.trail_high, self.cfg.atr_multiplier):
+                    if self.sig_gen.long_exit(
+                            row, pos.trail_high, self.cfg.atr_multiplier,
+                            pos.raw_entry_price):
                         pending_exit_tickers.add(pos.ticker)
                 else:
-                    if self.sig_gen.short_exit(row, pos.trail_low, self.cfg.atr_multiplier):
+                    if self.sig_gen.short_exit(
+                            row, pos.trail_low, self.cfg.atr_multiplier,
+                            pos.raw_entry_price):
                         pending_exit_tickers.add(pos.ticker)
 
             # ── (D) 今日收盤：篩選 + 判斷進場訊號（T+1 執行）──

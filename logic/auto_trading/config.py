@@ -24,9 +24,11 @@ class TradingConfig:
     slippage: float = 0.001                  # 滑價比例
 
     # ── 指標參數 ──
-    breakout_window: int = 50                # 突破 N 日高 / 低
-    ma_fast: int = 50                        # 快線均線
-    ma_slow: int = 100                       # 慢線均線
+    breakout_window: int = 20                # 突破 N 日高 / 低（進場）
+    stop_window: int = 10                    # N 日低 / 高（初始停損）
+    macd_fast: int = 12                      # MACD 快線 EMA 週期
+    macd_slow: int = 26                      # MACD 慢線 EMA 週期
+    macd_signal: int = 9                     # MACD Signal EMA 週期
     atr_period: int = 100                    # ATR 週期
     atr_multiplier: float = 3.0              # ATR 停損倍數
     week52: int = 252                        # 52 週交易日

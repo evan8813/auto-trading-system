@@ -269,10 +269,6 @@ def plot_trade(
 
     ax = axes[0]
     ax.plot(dv.index, dv["Close"],   color="#1565C0", lw=1.3, label="Close")
-    ax.plot(dv.index, dv["MA_Fast"], color="#FB8C00", lw=1.0, ls="--",
-            label=f"MA{cfg.ma_fast}")
-    ax.plot(dv.index, dv["MA_Slow"], color="#7B1FA2", lw=1.0, ls="--",
-            label=f"MA{cfg.ma_slow}")
     ax.plot(dv.index, dv["High_N"],  color="#388E3C", lw=0.8, ls=":",
             label=f"{cfg.breakout_window}D High (entry line)")
     ax.plot(dv.index, stop_full,     color="#C62828", lw=1.2, ls="-.",
@@ -415,9 +411,9 @@ def audit_step2_entries(
     print("\n" + "=" * 90)
     print("  Step 2 | Entry Signal Verification")
     print("=" * 90)
-    print(f"  {'Ticker':<8} {'SigDate':>12} {'SigClose':>9} {'Prev50Hi':>9} "
-          f"{'MA50':>8} {'MA100':>8} {'EntryDate':>12} {'EntryOpen':>10}")
-    print(f"  {'-'*82}")
+    print(f"  {'Ticker':<8} {'SigDate':>12} {'SigClose':>9} {'PrevHiN':>9} "
+          f"{'MACD':>10} {'MACDprev':>10} {'EntryDate':>12} {'EntryOpen':>10}")
+    print(f"  {'-'*86}")
 
     for _, t in trades.iterrows():
         ticker     = t["ticker"]
@@ -442,10 +438,10 @@ def audit_step2_entries(
         entry_open = df.loc[entry_date, "Open"] if entry_date in df.index else float("nan")
 
         print(f"  {ticker:<8} {str(sig_date.date()):>12} {sig_row['Close']:>9.2f} "
-              f"{prev_row['High_N']:>9.2f} {sig_row['MA_Fast']:>8.2f} "
-              f"{sig_row['MA_Slow']:>8.2f} {str(entry_date.date()):>12} {entry_open:>10.2f}")
+              f"{prev_row['High_N']:>9.2f} {sig_row['MACD']:>10.4f} "
+              f"{prev_row['MACD']:>10.4f} {str(entry_date.date()):>12} {entry_open:>10.2f}")
 
-    print(f"\n  Verify: SigClose > Prev50Hi, MA50 > MA100, EntryDate = SigDate+1")
+    print(f"\n  Verify: SigClose > PrevHiN, MACD>0, MACD rising, EntryDate = SigDate+1")
 
 
 def audit_step3_exits(
