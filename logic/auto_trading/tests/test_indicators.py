@@ -241,18 +241,18 @@ class TestAddAll:
             result["High_N"], expected, check_names=False
         )
 
-    def test_low_stop_equals_rolling_min_low(self):
-        """Low_Stop 是 Low 欄位的 stop_window 滾動最小值"""
+    def test_low_stop_equals_rolling_min_low_shifted(self):
+        """Low_Stop 是 Low 欄位的 stop_window 滾動最小值，再往後 shift(1)"""
         result = Indicators.add_all(self.df, self.cfg)
-        expected = self.df["Low"].rolling(self.cfg.stop_window).min()
+        expected = self.df["Low"].rolling(self.cfg.stop_window).min().shift(1)
         pd.testing.assert_series_equal(
             result["Low_Stop"], expected, check_names=False
         )
 
-    def test_high_stop_equals_rolling_max_high(self):
-        """High_Stop 是 High 欄位的 stop_window 滾動最大值"""
+    def test_high_stop_equals_rolling_max_high_shifted(self):
+        """High_Stop 是 High 欄位的 stop_window 滾動最大值，再往後 shift(1)"""
         result = Indicators.add_all(self.df, self.cfg)
-        expected = self.df["High"].rolling(self.cfg.stop_window).max()
+        expected = self.df["High"].rolling(self.cfg.stop_window).max().shift(1)
         pd.testing.assert_series_equal(
             result["High_Stop"], expected, check_names=False
         )

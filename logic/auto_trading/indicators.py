@@ -71,8 +71,11 @@ class Indicators:
         df["ATR"]       = Indicators.atr(df, cfg.atr_period)
         df["High_N"]    = Indicators.rolling_max(c, cfg.breakout_window)
         df["Low_N"]     = Indicators.rolling_min(c, cfg.breakout_window)
-        df["High_Stop"] = Indicators.rolling_max(df["High"], cfg.stop_window)
-        df["Low_Stop"]  = Indicators.rolling_min(df["Low"],  cfg.stop_window)
+        # .shift(1): stop price references yesterday's rolling window, so today's
+        # candle can actually breach it (Close < Low_Stop is otherwise impossible
+        # because Low_Stop[t] <= Low[t] <= Close[t] without the shift).
+        df["High_Stop"] = Indicators.rolling_max(df["High"], cfg.stop_window).shift(1)
+        df["Low_Stop"]  = Indicators.rolling_min(df["Low"],  cfg.stop_window).shift(1)
         df["High_52W"]  = Indicators.rolling_max(df["High"], cfg.week52)
         df["Low_52W"]   = Indicators.rolling_min(df["Low"],  cfg.week52)
 
