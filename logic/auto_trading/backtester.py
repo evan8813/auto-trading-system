@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
+from tqdm import tqdm
 
 from config import TradingConfig
 from indicators import Indicators
@@ -111,7 +112,7 @@ class Backtester:
         pending_exit_tickers: set[str]                     = set()
         pending_entries:      list[tuple[str, str, float]] = []  # (ticker, direction, atr)
 
-        for i, date in enumerate(all_dates):
+        for i, date in enumerate(tqdm(all_dates, desc="回測進度", unit="日")):
 
             # ── (A) 執行前一日收盤訊號（T+1 開盤成交）──
             if pending_exit_tickers or pending_entries:
