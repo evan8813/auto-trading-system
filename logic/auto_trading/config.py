@@ -34,7 +34,13 @@ class TradingConfig:
     week52: int = 252                        # 52 週交易日
 
     # ── 篩選條件 ──
-    min_avg_amount: float = 5_000_000.0      # 最低 20 日平均成交金額（元）
+    min_avg_amount:  float = 5_000_000.0     # 最低 20 日平均成交金額（元）
+    min_long_price:  float = 10.0            # 做多股價下限（元）
+    min_short_price: float = 20.0            # 做空股價下限（元）
+
+    # ── 大盤環境（TAIEX 200 日 EMA）──
+    taiex_csv_path:  str = ""                # 加權指數 CSV 路徑（空字串 = 停用環境過濾）
+    taiex_ema_period: int = 200              # 大盤 EMA 週期
 
     # ── 回測區間 ──
     backtest_start: str = "2010-01-01"
