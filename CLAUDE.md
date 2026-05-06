@@ -48,7 +48,7 @@
 | `test_config.py` | 43 | 預設值、自訂值、型別、邏輯關係 |
 | `test_indicators.py` | 22 | ATR、SMA、rolling max/min、add_all |
 | `test_signal_generator.py` | 25 | 做多/做空進出場、NaN 保護 |
-| `test_universe_filter.py` | 17 | 52週突破、成交金額、動態股價上限、NaN 保護 |
+| `test_universe_filter.py` | 26 | 52週突破、成交金額、動態股價上限、股價下限、大盤環境、NaN 保護 |
 | `test_risk_manager.py` | 22 | 風險金額上限、ATR 張數計算、容忍區、交易成本 |
 | `test_models.py` | 16 | Position 欄位、trail 追蹤停損、CorporateEvent |
 | `test_corporate_action.py` | 15 | 除權息載入、查詢、套用到持倉 |
@@ -56,7 +56,7 @@
 | `test_backtester.py` | 30 | 整合流程、績效計算、損益、equity_at_entry |
 | `test_scenarios.py` | 12 | 空池、持倉上限、補倉、不重複、零張數、停牌 |
 | `test_scenarios_advanced.py` | 15 | ROC 排序、T+1 停牌補位、動態成本截斷、換倉、權益追蹤 |
-| **合計** | **244** | |
+| **合計** | **253** | |
 
 ---
 
@@ -67,6 +67,8 @@
 | 52週突破 | 今日 `High > 昨日 High_52W`（多方候選）或 今日 `Low < 昨日 Low_52W`（空方候選） |
 | 成交金額 | 20日平均成交金額 >= 5,000,000 元 |
 | 股價上限 | 收盤 × 1,000 ≤ equity / max_positions（動態，隨資產成長） |
+| 股價下限 | 做多時收盤 >= 10 元；做空時收盤 >= 20 元 |
+| 大盤環境 | 加權指數（^TWII）> 200 日 EMA → 只做多；< 200 日 EMA → 只做空 |
 | High_52W | 取 `High`（最高價）欄位的252日 rolling max |
 | Low_52W | 取 `Low`（最低價）欄位的252日 rolling min |
 
