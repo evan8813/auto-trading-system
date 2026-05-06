@@ -203,9 +203,11 @@ class Backtester:
                 if direction:
                     pending_entries.append((ticker, direction, atr))
 
-            equity_curve.append({"date": date, "equity": equity})
+            equity_curve.append({"date": date, "equity": equity,
+                                  "n_positions": len(positions)})
 
-        metrics   = self._compute_metrics(equity_curve, closed_trades)
+        metrics   = self._compute_metrics(equity_curve, closed_trades,
+                                          self.cfg.max_positions)
         trades_df = pd.DataFrame(closed_trades) if closed_trades else pd.DataFrame()
 
         return {
@@ -391,10 +393,12 @@ class Backtester:
 
     def _compute_metrics(
         self,
-        equity_curve: list[dict],
-        trades:       list[dict],
+        equity_curve:  list[dict],
+        trades:        list[dict],
+        max_positions: int = 1,
     ) -> dict:
-        ec = pd.DataFrame(equity_curve).set_index("date")["equity"]
+        ec_df = pd.DataFrame(equity_curve).set_index("date")
+        ec    = ec_df["equity"]
 
         total_return = (ec.iloc[-1] / ec.iloc[0] - 1) * 100
 
@@ -406,6 +410,22 @@ class Backtester:
         cagr    = (
             ((ec.iloc[-1] / ec.iloc[0]) ** (1 / n_years) - 1) * 100
             if n_years > 0 else 0.0
+        )
+
+        # Sharpe ratio（年化）
+        daily_ret = ec.pct_change().dropna()
+        sharpe = (
+            daily_ret.mean() / daily_ret.std() * (252 ** 0.5)
+            if daily_ret.std() > 0 else 0.0
+        )
+
+        # Calmar ratio
+        calmar = cagr / abs(mdd) if mdd != 0 else 0.0
+
+        # 資金使用率（平均持倉數 / 最大持倉數）
+        utilization = (
+            ec_df["n_positions"].mean() / max_positions * 100
+            if "n_positions" in ec_df.columns and max_positions > 0 else 0.0
         )
 
         win_rate = avg_win = avg_loss = profit_factor = 0.0
@@ -425,6 +445,9 @@ class Backtester:
             "total_return_pct": round(total_return, 2),
             "cagr_pct":         round(cagr, 2),
             "max_drawdown_pct": round(mdd, 2),
+            "sharpe_ratio":     round(sharpe, 3),
+            "calmar_ratio":     round(calmar, 3),
+            "utilization_pct":  round(utilization, 1),
             "win_rate_pct":     round(win_rate, 2),
             "total_trades":     len(trades),
             "avg_win":          round(avg_win, 0),

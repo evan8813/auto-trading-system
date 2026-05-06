@@ -37,6 +37,10 @@ class Reporter:
         print(f"  總報酬率        : {metrics['total_return_pct']:>9.2f} %")
         print(f"  年化報酬 (CAGR) : {metrics['cagr_pct']:>9.2f} %")
         print(f"  最大回撤 (MDD)  : {metrics['max_drawdown_pct']:>9.2f} %")
+        print(f"  Sharpe Ratio    : {metrics['sharpe_ratio']:>9.3f}")
+        print(f"  Calmar Ratio    : {metrics['calmar_ratio']:>9.3f}  (目標 >= 0.5)")
+        print(f"  資金使用率      : {metrics['utilization_pct']:>9.1f} %")
+        print("-" * 48)
         print(f"  勝率            : {metrics['win_rate_pct']:>9.2f} %")
         print(f"  總交易次數      : {metrics['total_trades']:>9d}")
         print(f"  平均獲利 / 筆   : {metrics['avg_win']:>9.0f} 元")
@@ -74,16 +78,20 @@ class Reporter:
         save_path:    Optional[str] = "equity_curve.png",
     ) -> None:
         """
-        輸出雙圖表 PNG：上圖為淨值曲線，下圖為回撤百分比。
+        輸出三圖表 PNG：淨值曲線、回撤百分比、資金使用率。
 
         Parameters
         ----------
-        equity_curve : DataFrame，index = Date，欄位包含 "equity"
+        equity_curve : DataFrame，index = Date，欄位含 "equity"（與選用的 "n_positions"）
         save_path    : 輸出路徑；None = 直接顯示（需有 GUI）
         """
+        has_util = "n_positions" in equity_curve.columns
+        n_rows   = 3 if has_util else 2
+        ratios   = [3, 1, 1] if has_util else [3, 1]
+
         fig, axes = plt.subplots(
-            2, 1, figsize=(14, 8), sharex=True,
-            gridspec_kw={"height_ratios": [3, 1]},
+            n_rows, 1, figsize=(14, 9), sharex=True,
+            gridspec_kw={"height_ratios": ratios},
         )
         fig.suptitle("自動化交易系統 — Equity Curve", fontsize=14, fontweight="bold")
 
@@ -100,13 +108,24 @@ class Reporter:
         axes[0].legend(loc="upper left")
         axes[0].grid(alpha=0.3)
 
-        # 下圖：回撤
+        # 中圖：回撤
         axes[1].fill_between(
             ec.index, drawdown.values, color="#C62828", alpha=0.6, label="Drawdown")
         axes[1].set_ylabel("回撤 (%)")
-        axes[1].set_xlabel("日期")
         axes[1].legend(loc="lower left")
         axes[1].grid(alpha=0.3)
+
+        # 下圖：資金使用率
+        if has_util:
+            util = equity_curve["n_positions"]
+            axes[2].fill_between(
+                util.index, util.values, color="#2E7D32", alpha=0.6, label="持倉數")
+            axes[2].set_ylabel("持倉數")
+            axes[2].set_xlabel("日期")
+            axes[2].legend(loc="upper left")
+            axes[2].grid(alpha=0.3)
+        else:
+            axes[1].set_xlabel("日期")
 
         plt.tight_layout()
         if save_path:
