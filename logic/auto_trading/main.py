@@ -115,25 +115,9 @@ if __name__ == "__main__":
     folder  = sys.argv[1] if len(sys.argv) > 1 else None
     symbols = sys.argv[2:] if len(sys.argv) > 2 else None
 
-    cfg = TradingConfig(
-        initial_equity   = 180_000,       # 初始資金 18 萬（可負擔最多 1 張 180 元以下股票）
-        risk_pct         = 0.002,         # 每筆風險 0.2%
-        commission_rate  = 0.001425,
-        transaction_tax  = 0.003,
-        slippage         = 0.001,
-        max_positions    = 10,
-        max_trade_cost   = 5_000,         # 單筆買入上限 5,000 元
-        min_avg_amount   = 5_000_000,
-        min_long_price   = 10.0,          # 做多股價下限
-        min_short_price  = 20.0,          # 做空股價下限
-        taiex_csv_path   = str(Path(__file__).parent.parent.parent / "taiex.csv"),
-        backtest_start   = "2010-01-01",
-        backtest_end     = "2023-12-29",
-    )
-
     run_backtest(
         data_folder = folder,
         tickers     = symbols,
-        cfg         = cfg,
+        cfg         = TradingConfig(),    # 直接使用 config.py 的預設值
         output_dir  = "output",
     )
