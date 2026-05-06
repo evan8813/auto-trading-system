@@ -126,7 +126,7 @@ if __name__ == "__main__":
         min_avg_amount   = 5_000_000,
         min_long_price   = 10.0,          # 做多股價下限
         min_short_price  = 20.0,          # 做空股價下限
-        taiex_csv_path   = "taiex.csv",   # 大盤 200 日 EMA 環境過濾
+        taiex_csv_path   = str(Path(__file__).parent.parent.parent / "taiex.csv"),
         backtest_start   = "2010-01-01",
         backtest_end     = "2023-12-29",
     )
