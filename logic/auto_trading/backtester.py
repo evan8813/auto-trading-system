@@ -129,7 +129,7 @@ class Backtester:
                         pending_entries, data, date, held, available, equity)
                     positions.extend(new_pos)
 
-            pending_exit_tickers = set()
+            pending_exit_tickers: dict[str, str] = {}   # ticker → exit_reason
             pending_entries      = []
 
             # ── (B) 更新 trail（用今日 High/Low），再判斷今日收盤出場訊號 ──
@@ -154,18 +154,22 @@ class Backtester:
                     if self.sig_gen.long_exit(
                             row, pos.trail_high, self.cfg.atr_multiplier,
                             pos.raw_entry_price):
-                        pending_exit_tickers.add(pos.ticker)
+                        reason = ("phase2_trail" if pos.trail_high > pos.raw_entry_price
+                                  else "phase1_stop")
+                        pending_exit_tickers[pos.ticker] = reason
                 else:
                     if self.sig_gen.short_exit(
                             row, pos.trail_low, self.cfg.atr_multiplier,
                             pos.raw_entry_price):
-                        pending_exit_tickers.add(pos.ticker)
+                        reason = ("phase2_trail" if pos.trail_low < pos.raw_entry_price
+                                  else "phase1_stop")
+                        pending_exit_tickers[pos.ticker] = reason
 
             # ── (D) 今日收盤：篩選 + 判斷進場訊號（T+1 執行）──
             prev_date    = all_dates[i - 1] if i > 0 else date
             candidates   = self.uni_flt.filter(data, date, equity=equity)
             held_tickers = {p.ticker for p in positions}
-            effective_held = held_tickers - pending_exit_tickers
+            effective_held = held_tickers - set(pending_exit_tickers)
             available_slots = self.cfg.max_positions - len(effective_held)
 
             # 按 ROC_avg 由高到低排序，確保動能最強的股票優先進場
@@ -216,7 +220,7 @@ class Backtester:
         positions:    list[Position],
         data:         dict[str, pd.DataFrame],
         exec_date:    pd.Timestamp,
-        exit_tickers: set[str],
+        exit_tickers: dict[str, str],
     ) -> tuple[list[Position], list[dict]]:
         remaining: list[Position] = []
         exited:    list[dict]    = []
@@ -233,7 +237,7 @@ class Backtester:
             if isinstance(row, pd.DataFrame):
                 row = row.iloc[-1]
             exit_px = row["Open"] if not pd.isna(row["Open"]) else row["Close"]
-            trade   = self._close_position(pos, exec_date, exit_px, "signal")
+            trade   = self._close_position(pos, exec_date, exit_px, exit_tickers[pos.ticker])
             exited.append(trade)
             logger.debug(
                 f"EXIT  {pos.ticker} {pos.direction} @ {exit_px:.2f}"
