@@ -9,15 +9,15 @@ test_two_phase_exit.py
   否則 → Phase 1
 
 Phase 1（未獲利）：
-  多方出場：Close < Low_Stop（前日 stop_window 日最低）
-  空方出場：Close > High_Stop（前日 stop_window 日最高）
+  多方出場：Close < entry_price - phase1_atr_mult × atr_at_entry（固定，進場後不更新）
+  空方出場：Close > entry_price + phase1_atr_mult × atr_at_entry（固定，進場後不更新）
 
 Phase 2（已獲利）：
   多方出場：Close < trail_high - atr_mult × ATR
   空方出場：Close > trail_low  + atr_mult × ATR
 
 測試結構：
-  1. TestLowHighStopBreachable    ── shift(1) 後停損值確實可被穿越
+  1. TestLowHighStopBreachable    ── shift(1) 後 Low_Stop/High_Stop 值確實可被穿越（指標正確性）
   2. TestPhaseExitWithRealIndicators ── 用 add_all() 的真實指標驗證兩段出場
   3. TestPhaseBoundaryCondition   ── trail_high 邊界值切換 Phase 行為
 """
@@ -167,45 +167,51 @@ class TestPhaseExitWithRealIndicators:
     餵進 SignalGenerator，驗證兩段出場都能正確觸發。
     """
 
-    def test_phase1_long_exit_triggers_via_low_stop(self):
+    def test_phase1_long_exit_triggers_via_fixed_atr_stop(self):
         """
-        下跌序列 + trail_high == entry_price（未獲利）→ Phase 1：
-        找到 Close < Low_Stop 的列，確認 long_exit() 回傳 True。
+        下跌序列 + trail_high == entry_price（未獲利）→ Phase 1 固定停損：
+        設定 entry_price 讓 fixed_stop 剛好高於某列的 Close，確認 long_exit() 觸發。
+        fixed_stop = entry_price - phase1_atr_mult × atr_at_entry
         """
-        cfg    = TradingConfig(stop_window=5, atr_period=5)
+        cfg    = TradingConfig(stop_window=5, atr_period=5, phase1_atr_mult=1.5)
         result = Indicators.add_all(_declining_df(n=40), cfg)
+        valid  = result.dropna(subset=["ATR"])
 
-        valid        = result.dropna(subset=["Low_Stop", "ATR"])
-        breach_rows  = valid[valid["Close"] < valid["Low_Stop"]]
-        assert not breach_rows.empty, "測試前提：下跌序列需有 Close < Low_Stop 的列"
-
-        row         = breach_rows.iloc[0]
-        entry_price = row["Close"] + 5.0   # trail_high == entry_price（未曾獲利）
+        row          = valid.iloc[10]
+        atr_at_entry = row["ATR"]
+        # 設 fixed_stop = row["Close"] + 0.5（比 Close 高 0.5 → 觸發）
+        entry_price = row["Close"] + cfg.phase1_atr_mult * atr_at_entry + 0.5
 
         assert SignalGenerator.long_exit(
-            row, trail_high=entry_price, atr_mult=3.0, entry_price=entry_price
-        ), "Phase 1 多方：Close < Low_Stop 應觸發出場"
+            row, trail_high=entry_price, atr_mult=3.0,
+            entry_price=entry_price, atr_at_entry=atr_at_entry,
+            phase1_atr_mult=cfg.phase1_atr_mult,
+        ), "Phase 1 多方：Close < fixed_stop 應觸發出場"
 
     def test_phase2_long_exit_triggers_via_atr(self):
         """
         先漲後跌序列 + trail_high > entry_price（已獲利）→ Phase 2：
         跌幅超過 atr_mult × ATR 後，long_exit() 應回傳 True。
         """
-        cfg    = TradingConfig(stop_window=5, atr_period=5, atr_multiplier=2.0)
+        cfg    = TradingConfig(stop_window=5, atr_period=5, atr_multiplier=2.0,
+                               phase1_atr_mult=1.5)
         df     = _rally_then_drop_df(n_rise=25, n_drop=15)
         result = Indicators.add_all(df, cfg)
 
-        entry_price = df["Close"].iloc[0]
-        trail_high  = df["High"].max()  # 追蹤高點 = 序列最高點
+        entry_price  = df["Close"].iloc[0]
+        trail_high   = df["High"].max()
+        atr_at_entry = result.dropna(subset=["ATR"])["ATR"].iloc[0]
 
-        valid = result.dropna(subset=["ATR"])
-        drop_section = valid.iloc[-10:]   # 跌段末尾
+        valid        = result.dropna(subset=["ATR"])
+        drop_section = valid.iloc[-10:]
 
         triggered = any(
             SignalGenerator.long_exit(
                 row, trail_high=trail_high,
                 atr_mult=cfg.atr_multiplier,
                 entry_price=entry_price,
+                atr_at_entry=atr_at_entry,
+                phase1_atr_mult=cfg.phase1_atr_mult,
             )
             for _, row in drop_section.iterrows()
         )
@@ -213,36 +219,40 @@ class TestPhaseExitWithRealIndicators:
             "Phase 2 多方：跌段末尾應有 Close < trail_high - 2×ATR，但未觸發出場"
         )
 
-    def test_phase1_short_exit_triggers_via_high_stop(self):
+    def test_phase1_short_exit_triggers_via_fixed_atr_stop(self):
         """
-        上漲序列 + trail_low == entry_price（未獲利）→ Phase 1 空方：
-        Close > High_Stop 應觸發出場。
+        上漲序列 + trail_low == entry_price（未獲利）→ Phase 1 空方固定停損：
+        設定 entry_price 讓 fixed_stop 剛好低於某列的 Close，確認 short_exit() 觸發。
+        fixed_stop = entry_price + phase1_atr_mult × atr_at_entry
         """
-        cfg    = TradingConfig(stop_window=5, atr_period=5)
+        cfg    = TradingConfig(stop_window=5, atr_period=5, phase1_atr_mult=1.5)
         result = Indicators.add_all(_rising_df(n=40), cfg)
+        valid  = result.dropna(subset=["ATR"])
 
-        valid       = result.dropna(subset=["High_Stop", "ATR"])
-        breach_rows = valid[valid["Close"] > valid["High_Stop"]]
-        assert not breach_rows.empty, "測試前提：上漲序列需有 Close > High_Stop 的列"
-
-        row         = breach_rows.iloc[0]
-        entry_price = row["Close"] - 5.0   # trail_low == entry_price（未曾獲利）
+        row          = valid.iloc[10]
+        atr_at_entry = row["ATR"]
+        # 設 fixed_stop = row["Close"] - 0.5（比 Close 低 0.5 → 觸發）
+        entry_price = row["Close"] - cfg.phase1_atr_mult * atr_at_entry - 0.5
 
         assert SignalGenerator.short_exit(
-            row, trail_low=entry_price, atr_mult=3.0, entry_price=entry_price
-        ), "Phase 1 空方：Close > High_Stop 應觸發出場"
+            row, trail_low=entry_price, atr_mult=3.0,
+            entry_price=entry_price, atr_at_entry=atr_at_entry,
+            phase1_atr_mult=cfg.phase1_atr_mult,
+        ), "Phase 1 空方：Close > fixed_stop 應觸發出場"
 
     def test_phase2_short_exit_triggers_via_atr(self):
         """
         先跌後漲序列 + trail_low < entry_price（已獲利）→ Phase 2 空方：
         漲幅超過 atr_mult × ATR 後，short_exit() 應回傳 True。
         """
-        cfg    = TradingConfig(stop_window=5, atr_period=5, atr_multiplier=2.0)
+        cfg    = TradingConfig(stop_window=5, atr_period=5, atr_multiplier=2.0,
+                               phase1_atr_mult=1.5)
         df     = _drop_then_rise_df(n_drop=25, n_rise=15)
         result = Indicators.add_all(df, cfg)
 
-        entry_price = df["Close"].iloc[0]
-        trail_low   = df["Low"].min()   # 追蹤低點 = 序列最低點
+        entry_price  = df["Close"].iloc[0]
+        trail_low    = df["Low"].min()
+        atr_at_entry = result.dropna(subset=["ATR"])["ATR"].iloc[0]
 
         valid        = result.dropna(subset=["ATR"])
         rise_section = valid.iloc[-10:]
@@ -252,6 +262,8 @@ class TestPhaseExitWithRealIndicators:
                 row, trail_low=trail_low,
                 atr_mult=cfg.atr_multiplier,
                 entry_price=entry_price,
+                atr_at_entry=atr_at_entry,
+                phase1_atr_mult=cfg.phase1_atr_mult,
             )
             for _, row in rise_section.iterrows()
         )
@@ -280,47 +292,53 @@ class TestPhaseBoundaryCondition:
         })
 
     def test_trail_equal_entry_activates_phase1(self):
-        """trail_high == entry_price → Phase 1：Close < Low_Stop 觸發出場"""
-        row = self._row(close=93.0, low_stop=94.0, atr=5.0)
-        # Phase 1: 93 < 94 → 出場
+        """trail_high == entry_price → Phase 1：Close < fixed_stop 觸發出場
+        entry=100, atr_at_entry=5, phase1_atr_mult=1.5 → fixed_stop=92.5
+        Close=91 < 92.5 → 出場
+        """
+        row = self._row(close=91.0, low_stop=80.0, atr=5.0)
         assert SignalGenerator.long_exit(
-            row, trail_high=100.0, atr_mult=3.0, entry_price=100.0
+            row, trail_high=100.0, atr_mult=3.0, entry_price=100.0,
+            atr_at_entry=5.0, phase1_atr_mult=1.5,
         )
 
     def test_trail_above_entry_activates_phase2(self):
-        """trail_high > entry_price → Phase 2：改看 ATR 追蹤停損"""
-        row = self._row(close=93.0, low_stop=94.0, atr=5.0)
-        # Phase 2: stop = 100.01 - 3×5 = 85.01；Close=93 > 85.01 → 不出場
-        # （即使 Close=93 < Low_Stop=94，Phase 2 不參考 Low_Stop）
+        """trail_high > entry_price → Phase 2：改看 ATR 追蹤停損
+        stop = 100.01 - 3×5 = 85.01；Close=93 > 85.01 → 不出場
+        """
+        row = self._row(close=93.0, low_stop=80.0, atr=5.0)
         assert not SignalGenerator.long_exit(
-            row, trail_high=100.01, atr_mult=3.0, entry_price=100.0
+            row, trail_high=100.01, atr_mult=3.0, entry_price=100.0,
+            atr_at_entry=5.0, phase1_atr_mult=1.5,
         )
 
-    def test_phase1_ignores_atr_stop_when_low_stop_not_breached(self):
+    def test_phase1_uses_fixed_stop_not_current_atr(self):
         """
-        Phase 1 時，若 Close > Low_Stop，就算 ATR 追蹤停損被突破也不出場。
-        entry=100, trail_high=100, ATR=20 → atr_stop=40；
-        Low_Stop=80, Close=84：ATR stop 已被突破，但 Low_Stop 未被突破 → 不出場。
+        Phase 1 時只看固定停損，不看目前 ATR。
+        entry=100, atr_at_entry=5, phase1_atr_mult=1.5 → fixed_stop=92.5
+        Close=93 > 92.5 → 不出場（即使目前 ATR=20，atr_stop=40 遠低於 93）
         """
-        row = self._row(close=84.0, low_stop=80.0, atr=20.0)
-        # Phase 1: 84 > 80 → 不出場（即使 atr_stop=40 遠低於 84）
+        row = self._row(close=93.0, low_stop=80.0, atr=20.0)
         assert not SignalGenerator.long_exit(
-            row, trail_high=100.0, atr_mult=3.0, entry_price=100.0
+            row, trail_high=100.0, atr_mult=3.0, entry_price=100.0,
+            atr_at_entry=5.0, phase1_atr_mult=1.5,
         )
 
     def test_phase_switch_changes_exit_behavior_on_same_candle(self):
         """
-        同一根 K 棒（Close=84, Low_Stop=80, ATR=5）：
-          Phase 1（trail_high=100） → 不出場（84 > Low_Stop=80）
-          Phase 2（trail_high=100.01）→ 出場（84 < atr_stop=100.01-15=85.01）
+        同一根 K 棒（Close=91, ATR=5, entry=100, atr_at_entry=5）：
+          Phase 1（trail_high=100） → fixed_stop=92.5；91 < 92.5 → 出場
+          Phase 2（trail_high=100.01）→ atr_stop=85.01；91 > 85.01 → 不出場
         """
-        row = self._row(close=84.0, low_stop=80.0, atr=5.0)
+        row = self._row(close=91.0, low_stop=80.0, atr=5.0)
 
-        # Phase 1：Low_Stop=80 未被穿越 → 不出場
-        assert not SignalGenerator.long_exit(
-            row, trail_high=100.0, atr_mult=3.0, entry_price=100.0
-        )
-        # Phase 2：atr_stop ≈ 85 被穿越 → 出場
+        # Phase 1：固定停損 92.5 被穿越 → 出場
         assert SignalGenerator.long_exit(
-            row, trail_high=100.01, atr_mult=3.0, entry_price=100.0
+            row, trail_high=100.0, atr_mult=3.0, entry_price=100.0,
+            atr_at_entry=5.0, phase1_atr_mult=1.5,
+        )
+        # Phase 2：atr_stop=85.01；Close=91 > 85.01 → 不出場
+        assert not SignalGenerator.long_exit(
+            row, trail_high=100.01, atr_mult=3.0, entry_price=100.0,
+            atr_at_entry=5.0, phase1_atr_mult=1.5,
         )

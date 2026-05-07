@@ -153,14 +153,16 @@ class Backtester:
                 if pos.direction == "long":
                     if self.sig_gen.long_exit(
                             row, pos.trail_high, self.cfg.atr_multiplier,
-                            pos.raw_entry_price):
+                            pos.raw_entry_price, pos.atr_at_entry,
+                            self.cfg.phase1_atr_mult):
                         reason = ("phase2_trail" if pos.trail_high > pos.raw_entry_price
                                   else "phase1_stop")
                         pending_exit_tickers[pos.ticker] = reason
                 else:
                     if self.sig_gen.short_exit(
                             row, pos.trail_low, self.cfg.atr_multiplier,
-                            pos.raw_entry_price):
+                            pos.raw_entry_price, pos.atr_at_entry,
+                            self.cfg.phase1_atr_mult):
                         reason = ("phase2_trail" if pos.trail_low < pos.raw_entry_price
                                   else "phase1_stop")
                         pending_exit_tickers[pos.ticker] = reason
