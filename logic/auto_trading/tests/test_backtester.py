@@ -61,8 +61,6 @@ def make_long_position(
         trail_high=trail_high,
         trail_low=90.0,
         atr_at_entry=atr,
-        low_stop_at_entry=raw_entry - atr,
-        high_stop_at_entry=raw_entry + atr,
     )
 
 
@@ -86,8 +84,6 @@ def make_short_position(
         trail_high=110.0,
         trail_low=trail_low,
         atr_at_entry=atr,
-        low_stop_at_entry=raw_entry - atr,
-        high_stop_at_entry=raw_entry + atr,
     )
 
 

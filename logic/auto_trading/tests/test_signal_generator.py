@@ -99,76 +99,51 @@ class TestLongEntry:
 
 
 # ════════════════════════════════════════════════
-# 做多出場（兩段式）
+# 做多出場（ATR 追蹤停損）
 # ════════════════════════════════════════════════
 
 class TestLongExit:
-    """long_exit(row, trail_high, atr_mult, entry_price, low_stop_at_entry)
-    Phase 1 固定停損 = entry_price - phase1_atr_mult × atr_at_entry
+    """long_exit(row, trail_high, atr_mult)
+    stop = trail_high - atr_mult × ATR，從第一天開始，無 Phase 區分。
     """
 
-    # ── Phase 1：trail_high <= entry_price，固定停損（進場當下鎖死）──
-    # entry=100, atr_at_entry=5, phase1_atr_mult=1.5 → fixed_stop=92.5
+    def test_triggers_when_close_below_atr_stop(self):
+        """stop = 100 - 3×5 = 85，Close=84 < 85 → 出場"""
+        row = make_row(Close=84.0, ATR=5.0)
+        assert SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0)
 
-    def test_phase1_triggers_when_close_below_fixed_stop(self):
-        """收盤低於固定停損 92.5 → 出場"""
-        row = make_row(Close=91.0, ATR=5.0)
-        assert SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0,
-                                         entry_price=100.0, low_stop_at_entry=92.5)
+    def test_no_trigger_when_close_above_atr_stop(self):
+        """stop = 100 - 3×5 = 85，Close=86 > 85 → 不出場"""
+        row = make_row(Close=86.0, ATR=5.0)
+        assert not SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0)
 
-    def test_phase1_no_trigger_when_close_above_fixed_stop(self):
-        """收盤高於固定停損 92.5 → 不出場"""
-        row = make_row(Close=93.0, ATR=5.0)
-        assert not SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0,
-                                              entry_price=100.0, low_stop_at_entry=92.5)
+    def test_no_trigger_when_close_equals_atr_stop(self):
+        """stop = 100 - 3×5 = 85，Close=85（需嚴格小於）→ 不出場"""
+        row = make_row(Close=85.0, ATR=5.0)
+        assert not SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0)
 
-    def test_phase1_no_trigger_when_close_equals_fixed_stop(self):
-        """收盤等於固定停損（需嚴格小於）→ 不出場"""
-        row = make_row(Close=92.5, ATR=5.0)
-        assert not SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0,
-                                              entry_price=100.0, low_stop_at_entry=92.5)
+    def test_higher_trail_high_raises_stop(self):
+        """trail_high 越高，stop 越高：trail=120，stop=120-15=105，Close=104 → 出場"""
+        row = make_row(Close=104.0, ATR=5.0)
+        assert SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0)
 
-    def test_phase1_stop_does_not_move_with_price(self):
-        """固定停損不隨股價更新：Close=91 仍觸發，不管目前 ATR 多少"""
-        row = make_row(Close=91.0, ATR=2.0)   # ATR 縮小，固定停損不變
-        assert SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0,
-                                         entry_price=100.0, low_stop_at_entry=92.5)
-
-    # ── Phase 2：trail_high > entry_price，用 ATR 追蹤停損 ──
-
-    def test_phase2_triggers_when_close_below_atr_stop(self):
-        """trail_high > entry_price，stop = 120 - 3×5 = 105，Close=103 < 105"""
-        row = make_row(Close=103.0, ATR=5.0)
-        assert SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0,
-                                         entry_price=100.0, low_stop_at_entry=92.5)
-
-    def test_phase2_no_trigger_when_close_above_atr_stop(self):
-        """trail_high > entry_price，stop = 120 - 3×5 = 105，Close=106 > 105"""
+    def test_higher_trail_high_no_trigger_above_stop(self):
+        """trail=120，stop=105，Close=106 → 不出場"""
         row = make_row(Close=106.0, ATR=5.0)
-        assert not SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0,
-                                              entry_price=100.0, low_stop_at_entry=92.5)
+        assert not SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0)
 
-    def test_phase2_uses_atr_not_fixed_stop(self):
-        """Phase 2 只看 ATR 追蹤停損，不看固定停損"""
-        # Close=91 < fixed_stop=92.5，但 Phase 2 用 ATR stop=120-3×5=105
-        # Close=91 < 105 → 出場（原因是 ATR 停損，不是固定停損）
-        row = make_row(Close=91.0, ATR=5.0)
-        assert SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0,
-                                         entry_price=100.0, low_stop_at_entry=92.5)
-        # Close=106 > ATR stop=105 → 不出場
-        row2 = make_row(Close=106.0, ATR=5.0)
-        assert not SignalGenerator.long_exit(row2, trail_high=120.0, atr_mult=3.0,
-                                              entry_price=100.0, low_stop_at_entry=92.5)
+    def test_day1_stop_at_entry_price(self):
+        """進場第一天：trail_high = entry_price = 100，stop=85，Close=84 → 出場"""
+        row = make_row(Close=84.0, ATR=5.0)
+        assert SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0)
 
-    def test_phase2_nan_atr_returns_false(self):
-        row = make_row(Close=103.0, ATR=np.nan)
-        assert not SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0,
-                                              entry_price=100.0, low_stop_at_entry=92.5)
+    def test_nan_atr_returns_false(self):
+        row = make_row(Close=84.0, ATR=np.nan)
+        assert not SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0)
 
     def test_nan_close_returns_false(self):
         row = make_row(Close=np.nan, ATR=5.0)
-        assert not SignalGenerator.long_exit(row, trail_high=120.0, atr_mult=3.0,
-                                              entry_price=100.0, low_stop_at_entry=92.5)
+        assert not SignalGenerator.long_exit(row, trail_high=100.0, atr_mult=3.0)
 
 
 # ════════════════════════════════════════════════
@@ -225,61 +200,48 @@ class TestShortEntry:
 
 
 # ════════════════════════════════════════════════
-# 做空出場（兩段式）
+# 做空出場（ATR 追蹤停損）
 # ════════════════════════════════════════════════
 
 class TestShortExit:
-    """short_exit(row, trail_low, atr_mult, entry_price, high_stop_at_entry)
-    Phase 1 固定停損 = 進場當日 High_Stop（鎖死，不更新）
+    """short_exit(row, trail_low, atr_mult)
+    stop = trail_low + atr_mult × ATR，從第一天開始，無 Phase 區分。
     """
 
-    # ── Phase 1：trail_low >= entry_price，固定停損（進場當下鎖死）──
-    # entry=100, high_stop_at_entry=107.5
+    def test_triggers_when_close_above_atr_stop(self):
+        """stop = 100 + 3×5 = 115，Close=116 > 115 → 出場"""
+        row = make_row(Close=116.0, ATR=5.0)
+        assert SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0)
 
-    def test_phase1_triggers_when_close_above_fixed_stop(self):
-        """收盤高於固定停損 107.5 → 出場"""
-        row = make_row(Close=109.0, ATR=5.0)
-        assert SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0,
-                                          entry_price=100.0, high_stop_at_entry=107.5)
+    def test_no_trigger_when_close_below_atr_stop(self):
+        """stop = 100 + 3×5 = 115，Close=114 < 115 → 不出場"""
+        row = make_row(Close=114.0, ATR=5.0)
+        assert not SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0)
 
-    def test_phase1_no_trigger_when_close_below_fixed_stop(self):
-        """收盤低於固定停損 107.5 → 不出場"""
-        row = make_row(Close=106.0, ATR=5.0)
-        assert not SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0,
-                                               entry_price=100.0, high_stop_at_entry=107.5)
+    def test_no_trigger_when_close_equals_atr_stop(self):
+        """stop = 115，Close=115（需嚴格大於）→ 不出場"""
+        row = make_row(Close=115.0, ATR=5.0)
+        assert not SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0)
 
-    def test_phase1_no_trigger_when_close_equals_fixed_stop(self):
-        """收盤等於固定停損（需嚴格大於）→ 不出場"""
-        row = make_row(Close=107.5, ATR=5.0)
-        assert not SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0,
-                                               entry_price=100.0, high_stop_at_entry=107.5)
-
-    def test_phase1_stop_does_not_move_with_price(self):
-        """固定停損不隨股價更新：Close=109 仍觸發，不管目前 ATR 多少"""
-        row = make_row(Close=109.0, ATR=2.0)
-        assert SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0,
-                                          entry_price=100.0, high_stop_at_entry=107.5)
-
-    # ── Phase 2：trail_low < entry_price，用 ATR 追蹤停損 ──
-
-    def test_phase2_triggers_when_close_above_atr_stop(self):
-        """trail_low < entry_price，stop = 80 + 3×5 = 95，Close=97 > 95"""
-        row = make_row(Close=97.0, ATR=5.0)
-        assert SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0,
-                                          entry_price=100.0, high_stop_at_entry=107.5)
-
-    def test_phase2_no_trigger_when_close_below_atr_stop(self):
-        """trail_low < entry_price，stop = 80 + 3×5 = 95，Close=94 < 95"""
+    def test_lower_trail_low_lowers_stop(self):
+        """trail_low 越低，stop 越低：trail=80，stop=80+15=95，Close=94 → 不出場"""
         row = make_row(Close=94.0, ATR=5.0)
-        assert not SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0,
-                                               entry_price=100.0, high_stop_at_entry=107.5)
+        assert not SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0)
 
-    def test_phase2_nan_atr_returns_false(self):
-        row = make_row(Close=97.0, ATR=np.nan)
-        assert not SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0,
-                                               entry_price=100.0, high_stop_at_entry=107.5)
+    def test_lower_trail_low_triggers_above_stop(self):
+        """trail=80，stop=95，Close=96 → 出場"""
+        row = make_row(Close=96.0, ATR=5.0)
+        assert SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0)
+
+    def test_day1_stop_at_entry_price(self):
+        """進場第一天：trail_low = entry_price = 100，stop=115，Close=116 → 出場"""
+        row = make_row(Close=116.0, ATR=5.0)
+        assert SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0)
+
+    def test_nan_atr_returns_false(self):
+        row = make_row(Close=116.0, ATR=np.nan)
+        assert not SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0)
 
     def test_nan_close_returns_false(self):
         row = make_row(Close=np.nan, ATR=5.0)
-        assert not SignalGenerator.short_exit(row, trail_low=80.0, atr_mult=3.0,
-                                               entry_price=100.0, high_stop_at_entry=107.5)
+        assert not SignalGenerator.short_exit(row, trail_low=100.0, atr_mult=3.0)

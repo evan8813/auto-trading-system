@@ -10,13 +10,9 @@ signal_generator.py
 
 進出場規格：
   做多進場：收盤 > 前日 High_N(20)  且  MACD > 0  且  MACD 今 > MACD 昨
-  做多出場（兩段式）：
-    Phase 1  trail_high <= entry_price  →  收盤 < Low_Stop（10 日低）
-    Phase 2  trail_high >  entry_price  →  收盤 < trail_high - atr_mult × ATR
+  做多出場：收盤 < trail_high - atr_mult × ATR（ATR 追蹤停損，從第一天開始）
   做空進場：收盤 < 前日 Low_N(20)   且  MACD < 0  且  MACD 今 < MACD 昨
-  做空出場（兩段式）：
-    Phase 1  trail_low >= entry_price  →  收盤 > High_Stop（10 日高）
-    Phase 2  trail_low <  entry_price  →  收盤 > trail_low + atr_mult × ATR
+  做空出場：收盤 > trail_low + atr_mult × ATR（ATR 追蹤停損，從第一天開始）
 """
 
 from __future__ import annotations
@@ -49,29 +45,18 @@ class SignalGenerator:
 
     @staticmethod
     def long_exit(
-        row:                pd.Series,
-        trail_high:         float,
-        atr_mult:           float,
-        entry_price:        float,
-        low_stop_at_entry:  float,
+        row:        pd.Series,
+        trail_high: float,
+        atr_mult:   float,
     ) -> bool:
         """
-        做多出場條件（兩段式追蹤停損）：
-          Phase 1（尚未獲利，trail_high <= entry_price）：
-            收盤 < low_stop_at_entry（進場當日 10日低點，固定不更新）
-          Phase 2（已有獲利，trail_high > entry_price）：
-            收盤 < trail_high - atr_mult × ATR
+        做多出場條件（ATR 追蹤停損，從第一天開始）：
+          收盤 < trail_high - atr_mult × ATR
+        trail_high 初始值 = 進場價，每日只往上更新，確保停損線只升不降。
         """
-        if pd.isna(row["Close"]):
+        if pd.isna(row["Close"]) or pd.isna(row["ATR"]):
             return False
-        if trail_high > entry_price:
-            if pd.isna(row["ATR"]):
-                return False
-            return row["Close"] < trail_high - atr_mult * row["ATR"]
-        else:
-            if pd.isna(low_stop_at_entry):
-                return False
-            return row["Close"] < low_stop_at_entry
+        return row["Close"] < trail_high - atr_mult * row["ATR"]
 
     @staticmethod
     def short_entry(row: pd.Series, prev_row: pd.Series) -> bool:
@@ -91,26 +76,15 @@ class SignalGenerator:
 
     @staticmethod
     def short_exit(
-        row:                 pd.Series,
-        trail_low:           float,
-        atr_mult:            float,
-        entry_price:         float,
-        high_stop_at_entry:  float,
+        row:       pd.Series,
+        trail_low: float,
+        atr_mult:  float,
     ) -> bool:
         """
-        做空出場條件（兩段式追蹤停損）：
-          Phase 1（尚未獲利，trail_low >= entry_price）：
-            收盤 > high_stop_at_entry（進場當日 10日高點，固定不更新）
-          Phase 2（已有獲利，trail_low < entry_price）：
-            收盤 > trail_low + atr_mult × ATR
+        做空出場條件（ATR 追蹤停損，從第一天開始）：
+          收盤 > trail_low + atr_mult × ATR
+        trail_low 初始值 = 進場價，每日只往下更新，確保停損線只降不升。
         """
-        if pd.isna(row["Close"]):
+        if pd.isna(row["Close"]) or pd.isna(row["ATR"]):
             return False
-        if trail_low < entry_price:
-            if pd.isna(row["ATR"]):
-                return False
-            return row["Close"] > trail_low + atr_mult * row["ATR"]
-        else:
-            if pd.isna(high_stop_at_entry):
-                return False
-            return row["Close"] > high_stop_at_entry
+        return row["Close"] > trail_low + atr_mult * row["ATR"]

@@ -32,11 +32,9 @@ class Position:
     raw_entry_price: float            # 原始進場價（Shioaji 成交均價）
 
     # ── 追蹤停損 ──
-    trail_high:          float        # 持倉中累計最高價（做多 Phase 2 停損基準）
-    trail_low:           float        # 持倉中累計最低價（做空 Phase 2 停損基準）
-    atr_at_entry:        float
-    low_stop_at_entry:   float        # 進場當日 Low_Stop，Phase 1 做多固定停損（不再更新）
-    high_stop_at_entry:  float        # 進場當日 High_Stop，Phase 1 做空固定停損（不再更新）
+    trail_high:      float            # 持倉中累計最高價（做多停損基準）
+    trail_low:       float            # 持倉中累計最低價（做空停損基準）
+    atr_at_entry:    float
     equity_at_entry: float = 0.0      # 進場時可用資金（供驗證 / 審計用）
 
     # ── 除權息事件累計（實盤用）──
