@@ -35,6 +35,8 @@ def make_position(ticker="2330", shares=1000) -> Position:
         trail_high=110.0,
         trail_low=90.0,
         atr_at_entry=3.0,
+        low_stop_at_entry=97.0,
+        high_stop_at_entry=103.0,
     )
 
 

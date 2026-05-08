@@ -49,17 +49,16 @@ class SignalGenerator:
 
     @staticmethod
     def long_exit(
-        row:            pd.Series,
-        trail_high:     float,
-        atr_mult:       float,
-        entry_price:    float,
-        atr_at_entry:   float,
-        phase1_atr_mult: float,
+        row:                pd.Series,
+        trail_high:         float,
+        atr_mult:           float,
+        entry_price:        float,
+        low_stop_at_entry:  float,
     ) -> bool:
         """
         做多出場條件（兩段式追蹤停損）：
           Phase 1（尚未獲利，trail_high <= entry_price）：
-            收盤 < 進場價 - phase1_atr_mult × 進場當下ATR（固定，不隨價格更新）
+            收盤 < low_stop_at_entry（進場當日 10日低點，固定不更新）
           Phase 2（已有獲利，trail_high > entry_price）：
             收盤 < trail_high - atr_mult × ATR
         """
@@ -70,8 +69,9 @@ class SignalGenerator:
                 return False
             return row["Close"] < trail_high - atr_mult * row["ATR"]
         else:
-            fixed_stop = entry_price - phase1_atr_mult * atr_at_entry
-            return row["Close"] < fixed_stop
+            if pd.isna(low_stop_at_entry):
+                return False
+            return row["Close"] < low_stop_at_entry
 
     @staticmethod
     def short_entry(row: pd.Series, prev_row: pd.Series) -> bool:
@@ -91,17 +91,16 @@ class SignalGenerator:
 
     @staticmethod
     def short_exit(
-        row:             pd.Series,
-        trail_low:       float,
-        atr_mult:        float,
-        entry_price:     float,
-        atr_at_entry:    float,
-        phase1_atr_mult: float,
+        row:                 pd.Series,
+        trail_low:           float,
+        atr_mult:            float,
+        entry_price:         float,
+        high_stop_at_entry:  float,
     ) -> bool:
         """
         做空出場條件（兩段式追蹤停損）：
           Phase 1（尚未獲利，trail_low >= entry_price）：
-            收盤 > 進場價 + phase1_atr_mult × 進場當下ATR（固定，不隨價格更新）
+            收盤 > high_stop_at_entry（進場當日 10日高點，固定不更新）
           Phase 2（已有獲利，trail_low < entry_price）：
             收盤 > trail_low + atr_mult × ATR
         """
@@ -112,5 +111,6 @@ class SignalGenerator:
                 return False
             return row["Close"] > trail_low + atr_mult * row["ATR"]
         else:
-            fixed_stop = entry_price + phase1_atr_mult * atr_at_entry
-            return row["Close"] > fixed_stop
+            if pd.isna(high_stop_at_entry):
+                return False
+            return row["Close"] > high_stop_at_entry

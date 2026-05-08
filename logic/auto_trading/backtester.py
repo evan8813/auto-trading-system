@@ -110,7 +110,7 @@ class Backtester:
 
         # T 日收盤產生的待執行訊號，T+1 日開盤才執行
         pending_exit_tickers: set[str]                     = set()
-        pending_entries:      list[tuple[str, str, float]] = []  # (ticker, direction, atr)
+        pending_entries:      list[tuple[str, str, float, float, float]] = []  # (ticker, direction, atr, low_stop, high_stop)
 
         for i, date in enumerate(tqdm(all_dates, desc="回測進度", unit="日")):
 
@@ -154,16 +154,14 @@ class Backtester:
                 if pos.direction == "long":
                     if self.sig_gen.long_exit(
                             row, pos.trail_high, self.cfg.atr_multiplier,
-                            pos.raw_entry_price, pos.atr_at_entry,
-                            self.cfg.phase1_atr_mult):
+                            pos.raw_entry_price, pos.low_stop_at_entry):
                         reason = ("phase2_trail" if pos.trail_high > pos.raw_entry_price
                                   else "phase1_stop")
                         pending_exit_tickers[pos.ticker] = reason
                 else:
                     if self.sig_gen.short_exit(
                             row, pos.trail_low, self.cfg.atr_multiplier,
-                            pos.raw_entry_price, pos.atr_at_entry,
-                            self.cfg.phase1_atr_mult):
+                            pos.raw_entry_price, pos.high_stop_at_entry):
                         reason = ("phase2_trail" if pos.trail_low < pos.raw_entry_price
                                   else "phase1_stop")
                         pending_exit_tickers[pos.ticker] = reason
@@ -198,12 +196,14 @@ class Backtester:
                 prev_row = df.loc[prev_date]
                 if isinstance(row,      pd.DataFrame): row      = row.iloc[-1]
                 if isinstance(prev_row, pd.DataFrame): prev_row = prev_row.iloc[-1]
-                atr = row["ATR"]
+                atr       = row["ATR"]
+                low_stop  = row.get("Low_Stop",  float("nan"))
+                high_stop = row.get("High_Stop", float("nan"))
                 if pd.isna(atr) or atr <= 0:
                     continue
                 direction = self._resolve_direction(row, prev_row)
                 if direction:
-                    pending_entries.append((ticker, direction, atr))
+                    pending_entries.append((ticker, direction, atr, low_stop, high_stop))
 
             equity_curve.append({"date": date, "equity": equity,
                                   "n_positions": len(positions)})
@@ -313,7 +313,7 @@ class Backtester:
         new_positions: list[Position] = []
         initial_held_count = len(held_tickers)
 
-        for ticker, direction, atr_at_signal in pending_entries:
+        for ticker, direction, atr_at_signal, low_stop_sig, high_stop_sig in pending_entries:
             if ticker in held_tickers:
                 continue
             if initial_held_count + len(new_positions) >= self.cfg.max_positions:
@@ -358,17 +358,19 @@ class Backtester:
                 shares = lots * 1000
 
             pos = Position(
-                ticker           = ticker,
-                direction        = direction,
-                entry_date       = exec_date,
-                lots             = lots,
-                shares           = shares,
-                adj_entry_price  = adj_entry,
-                raw_entry_price  = entry_price,
-                trail_high       = entry_price,
-                trail_low        = entry_price,
-                atr_at_entry     = atr_at_signal,
-                equity_at_entry  = total_equity, # 進場時總淨值
+                ticker               = ticker,
+                direction            = direction,
+                entry_date           = exec_date,
+                lots                 = lots,
+                shares               = shares,
+                adj_entry_price      = adj_entry,
+                raw_entry_price      = entry_price,
+                trail_high           = entry_price,
+                trail_low            = entry_price,
+                atr_at_entry         = atr_at_signal,
+                low_stop_at_entry    = low_stop_sig,
+                high_stop_at_entry   = high_stop_sig,
+                equity_at_entry      = total_equity,
             )
             new_positions.append(pos)
             held_tickers.add(ticker)
