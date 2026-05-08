@@ -36,8 +36,7 @@ class TradingConfig:
     macd_slow:       int   = 26              # MACD 慢線 EMA 週期
     macd_signal:     int   = 9               # MACD Signal EMA 週期
     atr_period:      int   = 100             # ATR 週期
-    atr_multiplier:   float = 3.0             # Phase 2 ATR 追蹤停損倍數
-    phase1_atr_mult:  float = 1.5            # Phase 1 固定停損倍數（進場價 ± N×ATR，不隨價格更新）
+    atr_multiplier:  float = 3.0             # ATR 停損倍數（Phase 2 追蹤停損）
     week52:          int   = 252             # 52 週交易日
 
     # ── 篩選條件 ──
