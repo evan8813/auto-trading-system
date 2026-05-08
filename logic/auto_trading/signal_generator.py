@@ -49,15 +49,17 @@ class SignalGenerator:
 
     @staticmethod
     def long_exit(
-        row:         pd.Series,
-        trail_high:  float,
-        atr_mult:    float,
-        entry_price: float,
+        row:            pd.Series,
+        trail_high:     float,
+        atr_mult:       float,
+        entry_price:    float,
+        atr_at_entry:   float,
+        phase1_atr_mult: float,
     ) -> bool:
         """
         做多出場條件（兩段式追蹤停損）：
           Phase 1（尚未獲利，trail_high <= entry_price）：
-            收盤 < Low_Stop（10 日低點）
+            收盤 < 進場價 - phase1_atr_mult × 進場當下ATR（固定，不隨價格更新）
           Phase 2（已有獲利，trail_high > entry_price）：
             收盤 < trail_high - atr_mult × ATR
         """
@@ -68,9 +70,8 @@ class SignalGenerator:
                 return False
             return row["Close"] < trail_high - atr_mult * row["ATR"]
         else:
-            if pd.isna(row["Low_Stop"]):
-                return False
-            return row["Close"] < row["Low_Stop"]
+            fixed_stop = entry_price - phase1_atr_mult * atr_at_entry
+            return row["Close"] < fixed_stop
 
     @staticmethod
     def short_entry(row: pd.Series, prev_row: pd.Series) -> bool:
@@ -90,15 +91,17 @@ class SignalGenerator:
 
     @staticmethod
     def short_exit(
-        row:         pd.Series,
-        trail_low:   float,
-        atr_mult:    float,
-        entry_price: float,
+        row:             pd.Series,
+        trail_low:       float,
+        atr_mult:        float,
+        entry_price:     float,
+        atr_at_entry:    float,
+        phase1_atr_mult: float,
     ) -> bool:
         """
         做空出場條件（兩段式追蹤停損）：
           Phase 1（尚未獲利，trail_low >= entry_price）：
-            收盤 > High_Stop（10 日高點）
+            收盤 > 進場價 + phase1_atr_mult × 進場當下ATR（固定，不隨價格更新）
           Phase 2（已有獲利，trail_low < entry_price）：
             收盤 > trail_low + atr_mult × ATR
         """
@@ -109,6 +112,5 @@ class SignalGenerator:
                 return False
             return row["Close"] > trail_low + atr_mult * row["ATR"]
         else:
-            if pd.isna(row["High_Stop"]):
-                return False
-            return row["Close"] > row["High_Stop"]
+            fixed_stop = entry_price + phase1_atr_mult * atr_at_entry
+            return row["Close"] > fixed_stop
