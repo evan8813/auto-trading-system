@@ -29,8 +29,6 @@ def make_long_position(**kwargs) -> Position:
         trail_high=510.0,
         trail_low=490.0,
         atr_at_entry=8.0,
-        low_stop_at_entry=492.0,
-        high_stop_at_entry=508.0,
     )
     defaults.update(kwargs)
     return Position(**defaults)
@@ -48,8 +46,6 @@ def make_short_position(**kwargs) -> Position:
         trail_high=105.0,
         trail_low=95.0,
         atr_at_entry=3.0,
-        low_stop_at_entry=97.0,
-        high_stop_at_entry=103.0,
     )
     defaults.update(kwargs)
     return Position(**defaults)

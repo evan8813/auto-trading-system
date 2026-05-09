@@ -45,18 +45,19 @@
 
 | 測試檔 | 測試數 | 說明 |
 |--------|--------|------|
-| `test_config.py` | 43 | 預設值、自訂值、型別、邏輯關係 |
-| `test_indicators.py` | 22 | ATR、SMA、rolling max/min、add_all |
-| `test_signal_generator.py` | 25 | 做多/做空進出場、NaN 保護 |
+| `test_config.py` | 51 | 預設值、自訂值、型別、邏輯關係 |
+| `test_indicators.py` | 30 | ATR、SMA、rolling max/min、add_all |
+| `test_signal_generator.py` | 34 | 做多/做空進出場、ATR 追蹤停損、NaN 保護 |
 | `test_universe_filter.py` | 26 | 52週突破、成交金額、動態股價上限、股價下限、大盤環境、NaN 保護 |
 | `test_risk_manager.py` | 22 | 風險金額上限、ATR 張數計算、容忍區、交易成本 |
 | `test_models.py` | 16 | Position 欄位、trail 追蹤停損、CorporateEvent |
 | `test_corporate_action.py` | 15 | 除權息載入、查詢、套用到持倉 |
 | `test_data_loader.py` | 27 | CSV 讀取、欄位對應、編碼偵測、資料清洗 |
-| `test_backtester.py` | 30 | 整合流程、績效計算、損益、equity_at_entry |
+| `test_backtester.py` | 25 | 整合流程、績效計算、損益、equity_at_entry |
 | `test_scenarios.py` | 12 | 空池、持倉上限、補倉、不重複、零張數、停牌 |
-| `test_scenarios_advanced.py` | 15 | ROC 排序、T+1 停牌補位、動態成本截斷、換倉、權益追蹤 |
-| **合計** | **253** | |
+| `test_scenarios_advanced.py` | 14 | ROC 排序、T+1 停牌補位、動態成本截斷、換倉、權益追蹤 |
+| `test_two_phase_exit.py` | 13 | ATR 追蹤停損端對端驗證 |
+| **合計** | **285** | |
 
 ---
 
@@ -78,10 +79,10 @@
 
 | 條件 | 說明 |
 |------|------|
-| 做多進場 | 收盤 > 前日 High_N 且 MA_Fast > MA_Slow |
-| 做多出場 | 收盤 < trail_high - atr_multiplier × ATR |
-| 做空進場 | 收盤 < 前日 Low_N 且 MA_Fast < MA_Slow |
-| 做空出場 | 收盤 > trail_low + atr_multiplier × ATR |
+| 做多進場 | 收盤 > 前日 High_N 且 MACD > 0 且 MACD 上升 |
+| 做多出場 | 收盤 < trail_high − atr_multiplier × ATR（從第一天開始，trail_high 只升不降） |
+| 做空進場 | 收盤 < 前日 Low_N 且 MACD < 0 且 MACD 下降 |
+| 做空出場 | 收盤 > trail_low + atr_multiplier × ATR（從第一天開始，trail_low 只降不升） |
 
 ---
 
