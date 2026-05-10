@@ -41,6 +41,7 @@ def scenario_cfg(**overrides) -> TradingConfig:
         max_trade_cost  = 999_999_999,
         max_positions   = 5,
         point_value     = 1.0,
+        vol_mult        = 0.0,   # 合成資料量能固定，設 0 停用量能篩選
     )
     base.update(overrides)
     return TradingConfig(**base)

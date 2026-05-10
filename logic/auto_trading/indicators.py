@@ -90,6 +90,9 @@ class Indicators:
         else:
             df["Avg_Amount_20"] = (df["Volume"] * df["Close"]).rolling(20).mean()
 
+        # 成交量 20 日均量（突破量能確認用）
+        df["Vol_MA20"] = df["Volume"].rolling(20).mean()
+
         # ROC（2週/5週/7週 平均動能）
         df["ROC_10"] = c.pct_change(periods=10) * 100   # 2 週
         df["ROC_25"] = c.pct_change(periods=25) * 100   # 5 週
