@@ -158,42 +158,40 @@ class TestRollingMaxMin:
         assert list(result) == pytest.approx([9.0, 1.0, 5.0])
 
 
-class TestMACD:
-    """MACD 線與 Signal 線"""
+class TestMA:
+    """MA_fast / MA_slow 趨勢濾網"""
 
-    def test_macd_returns_two_series(self):
-        series = pd.Series(100 + np.cumsum(np.random.default_rng(0).normal(0, 1, 100)))
-        macd_line, signal_line = Indicators.macd(series, fast=12, slow=26, signal=9)
-        assert isinstance(macd_line,   pd.Series)
-        assert isinstance(signal_line, pd.Series)
+    def test_ma_fast_returns_series(self):
+        series = pd.Series(np.linspace(100, 200, 150))
+        result = Indicators.sma(series, window=50)
+        assert isinstance(result, pd.Series)
+        assert len(result) == 150
 
-    def test_macd_length_matches_input(self):
-        series = pd.Series(range(100), dtype=float)
-        macd_line, signal_line = Indicators.macd(series, fast=12, slow=26, signal=9)
-        assert len(macd_line)   == 100
-        assert len(signal_line) == 100
+    def test_ma_slow_returns_series(self):
+        series = pd.Series(np.linspace(100, 200, 150))
+        result = Indicators.sma(series, window=100)
+        assert isinstance(result, pd.Series)
+        assert len(result) == 150
 
-    def test_macd_line_positive_in_uptrend(self):
-        """持續上漲時，快 EMA > 慢 EMA，MACD 應為正"""
-        series = pd.Series(np.linspace(100, 200, 100))
-        macd_line, _ = Indicators.macd(series, fast=12, slow=26, signal=9)
-        # 暖機後的數值應為正
-        assert macd_line.iloc[-1] > 0
+    def test_ma_fast_above_slow_in_uptrend(self):
+        """持續上漲時，MA_fast（50）> MA_slow（100）"""
+        series = pd.Series(np.linspace(100, 200, 150))
+        ma_fast = Indicators.sma(series, window=50)
+        ma_slow = Indicators.sma(series, window=100)
+        assert ma_fast.iloc[-1] > ma_slow.iloc[-1]
 
-    def test_macd_line_negative_in_downtrend(self):
-        """持續下跌時，快 EMA < 慢 EMA，MACD 應為負"""
-        series = pd.Series(np.linspace(200, 100, 100))
-        macd_line, _ = Indicators.macd(series, fast=12, slow=26, signal=9)
-        assert macd_line.iloc[-1] < 0
+    def test_ma_fast_below_slow_in_downtrend(self):
+        """持續下跌時，MA_fast（50）< MA_slow（100）"""
+        series = pd.Series(np.linspace(200, 100, 150))
+        ma_fast = Indicators.sma(series, window=50)
+        ma_slow = Indicators.sma(series, window=100)
+        assert ma_fast.iloc[-1] < ma_slow.iloc[-1]
 
-    def test_macd_fast_must_be_less_than_slow(self):
-        """fast < slow 才有意義：上漲時 MACD > 0"""
-        series = pd.Series(np.linspace(100, 200, 100))
-        macd_line, _ = Indicators.macd(series, fast=12, slow=26, signal=9)
-        assert macd_line.iloc[-1] > 0
-        # 若 fast > slow，上漲時反而 MACD < 0
-        macd_inverted, _ = Indicators.macd(series, fast=26, slow=12, signal=9)
-        assert macd_inverted.iloc[-1] < 0
+    def test_ma_nan_during_warmup(self):
+        """暖機期不足 window 長度，應為 NaN"""
+        series = pd.Series(np.ones(50))
+        result = Indicators.sma(series, window=100)
+        assert result.isna().all()
 
 
 class TestAddAll:
@@ -218,17 +216,17 @@ class TestAddAll:
             "ATR", "High_N", "Low_N",
             "High_Stop", "Low_Stop",
             "High_52W", "Low_52W",
-            "MACD", "MACD_signal",
+            "MA_fast", "MA_slow",
             "Avg_Amount_20",
         ]
         for col in expected:
             assert col in result.columns, f"缺少欄位：{col}"
 
-    def test_no_ma_fast_or_ma_slow_columns(self):
-        """MA_Fast / MA_Slow 已移除，不應出現"""
+    def test_no_macd_columns(self):
+        """MACD 已移除，不應出現"""
         result = Indicators.add_all(self.df, self.cfg)
-        assert "MA_Fast" not in result.columns
-        assert "MA_Slow" not in result.columns
+        assert "MACD" not in result.columns
+        assert "MACD_signal" not in result.columns
 
     def test_row_count_unchanged(self):
         result = Indicators.add_all(self.df, self.cfg)
@@ -274,13 +272,11 @@ class TestAddAll:
             result["Avg_Amount_20"], expected, check_names=False
         )
 
-    def test_macd_column_matches_manual_calculation(self):
-        """MACD 欄位應等於 EMA(fast) - EMA(slow)"""
+    def test_ma_fast_column_matches_manual_calculation(self):
+        """MA_fast 欄位應等於 SMA(ma_fast)"""
         result   = Indicators.add_all(self.df, self.cfg)
         c        = self.df["Close"]
-        ema_fast = c.ewm(span=self.cfg.macd_fast, adjust=False).mean()
-        ema_slow = c.ewm(span=self.cfg.macd_slow, adjust=False).mean()
-        expected = ema_fast - ema_slow
+        expected = c.rolling(self.cfg.ma_fast).mean()
         pd.testing.assert_series_equal(
-            result["MACD"], expected, check_names=False
+            result["MA_fast"], expected, check_names=False
         )

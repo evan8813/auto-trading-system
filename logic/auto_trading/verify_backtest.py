@@ -412,7 +412,7 @@ def audit_step2_entries(
     print("  Step 2 | Entry Signal Verification")
     print("=" * 90)
     print(f"  {'Ticker':<8} {'SigDate':>12} {'SigClose':>9} {'PrevHiN':>9} "
-          f"{'MACD':>10} {'MACDprev':>10} {'EntryDate':>12} {'EntryOpen':>10}")
+          f"{'MA_fast':>9} {'MA_slow':>9} {'EntryDate':>12} {'EntryOpen':>10}")
     print(f"  {'-'*86}")
 
     for _, t in trades.iterrows():
@@ -438,10 +438,10 @@ def audit_step2_entries(
         entry_open = df.loc[entry_date, "Open"] if entry_date in df.index else float("nan")
 
         print(f"  {ticker:<8} {str(sig_date.date()):>12} {sig_row['Close']:>9.2f} "
-              f"{prev_row['High_N']:>9.2f} {sig_row['MACD']:>10.4f} "
-              f"{prev_row['MACD']:>10.4f} {str(entry_date.date()):>12} {entry_open:>10.2f}")
+              f"{prev_row['High_N']:>9.2f} {sig_row['MA_fast']:>9.2f} "
+              f"{sig_row['MA_slow']:>9.2f} {str(entry_date.date()):>12} {entry_open:>10.2f}")
 
-    print(f"\n  Verify: SigClose > PrevHiN, MACD>0, MACD rising, EntryDate = SigDate+1")
+    print(f"\n  Verify: SigClose > PrevHiN, MA_fast > MA_slow, EntryDate = SigDate+1")
 
 
 def audit_step3_exits(

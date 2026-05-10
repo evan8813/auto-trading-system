@@ -204,7 +204,8 @@ class TestTrailHighLowBoundary:
         return pd.Series({
             "Close": close, "ATR": atr,
             "Open": close, "High": close + 0.5, "Low": close - 0.5,
-            "High_N": close + 10.0, "Low_N": close - 10.0, "MACD": 1.0,
+            "High_N": close + 10.0, "Low_N": close - 10.0,
+            "MA_fast": close + 1.0, "MA_slow": close,
         })
 
     def test_long_exit_at_entry_trail_tight(self):
