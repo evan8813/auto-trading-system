@@ -4,14 +4,12 @@ test_signal_generator.py
 步驟 4：驗證進出場訊號邏輯。
 
 測試項目：
-  1. long_entry()  ── 突破 + MACD > 0 + MACD 上升 → True
+  1. long_entry()  ── 突破 + MA_fast > MA_slow + 量能 → True
   2. long_entry()  ── 任一條件不符 → False
-  3. long_exit()   ── Phase 1（未獲利）：跌破 Low_Stop → True
-  4. long_exit()   ── Phase 2（已獲利）：跌破 ATR 追蹤停損 → True
-  5. short_entry() ── 跌破 + MACD < 0 + MACD 下降 → True
-  6. short_exit()  ── Phase 1（未獲利）：突破 High_Stop → True
-  7. short_exit()  ── Phase 2（已獲利）：突破 ATR 追蹤停損 → True
-  8. NaN 輸入保護 → 一律回傳 False
+  3. long_exit()   ── 跌破 ATR 追蹤停損 → True
+  4. short_entry() ── 跌破 + MA_fast < MA_slow + 量能 → True
+  5. short_exit()  ── 突破 ATR 追蹤停損 → True
+  6. NaN 輸入保護 → 一律回傳 False
 """
 
 import pytest
@@ -28,7 +26,8 @@ def make_row(**kwargs) -> pd.Series:
         "ATR": 5.0,
         "High_N": 108.0, "Low_N": 90.0,
         "High_Stop": 106.0, "Low_Stop": 94.0,
-        "MACD": 1.0,
+        "MA_fast": 51.0,        # 預設多頭趨勢（fast > slow）
+        "MA_slow": 50.0,
         "Volume": 200_000.0,    # 預設量：2 倍均量（符合 1.5x 門檻）
         "Vol_MA20": 100_000.0,  # 預設 20 日均量
     }
@@ -44,87 +43,81 @@ class TestLongEntry:
     """long_entry(row, prev_row)"""
 
     def test_triggers_when_all_conditions_met(self):
-        """收盤突破前日 High_N，MACD > 0 且上升"""
-        row      = make_row(Close=110.0, MACD=2.0)   # MACD 今=2.0 > 昨=1.0，且 > 0
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        """收盤突破前日 High_N，MA_fast > MA_slow，量能充足"""
+        row      = make_row(Close=110.0, MA_fast=52.0, MA_slow=50.0)
+        prev_row = make_row(High_N=108.0)
         assert SignalGenerator.long_entry(row, prev_row)
 
     def test_no_trigger_without_breakout(self):
         """收盤未突破 High_N"""
-        row      = make_row(Close=100.0, MACD=2.0)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=100.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_no_trigger_when_close_equals_high_n(self):
         """收盤等於 High_N（需嚴格大於）"""
-        row      = make_row(Close=108.0, MACD=2.0)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=108.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
-    def test_no_trigger_when_macd_negative(self):
-        """MACD ≤ 0 → 不在多頭區間"""
-        row      = make_row(Close=110.0, MACD=-0.5)
-        prev_row = make_row(High_N=108.0, MACD=-1.0)
+    def test_no_trigger_when_ma_bearish(self):
+        """MA_fast < MA_slow（空頭趨勢）→ 不進場"""
+        row      = make_row(Close=110.0, MA_fast=49.0, MA_slow=50.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
-    def test_no_trigger_when_macd_not_rising(self):
-        """MACD 今 ≤ MACD 昨（未上升）"""
-        row      = make_row(Close=110.0, MACD=1.0)   # 今=1.0 = 昨=1.0，未上升
-        prev_row = make_row(High_N=108.0, MACD=1.0)
-        assert not SignalGenerator.long_entry(row, prev_row)
-
-    def test_no_trigger_when_macd_falling(self):
-        """MACD 今 < MACD 昨（下降中）"""
-        row      = make_row(Close=110.0, MACD=0.5)
-        prev_row = make_row(High_N=108.0, MACD=2.0)
+    def test_no_trigger_when_ma_fast_equals_ma_slow(self):
+        """MA_fast == MA_slow（需嚴格大於）→ 不進場"""
+        row      = make_row(Close=110.0, MA_fast=50.0, MA_slow=50.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_nan_close_returns_false(self):
         row      = make_row(Close=np.nan)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_nan_high_n_returns_false(self):
-        row      = make_row(Close=110.0, MACD=2.0)
-        prev_row = make_row(High_N=np.nan, MACD=1.0)
+        row      = make_row(Close=110.0)
+        prev_row = make_row(High_N=np.nan)
         assert not SignalGenerator.long_entry(row, prev_row)
 
-    def test_nan_macd_today_returns_false(self):
-        row      = make_row(Close=110.0, MACD=np.nan)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+    def test_nan_ma_fast_returns_false(self):
+        row      = make_row(Close=110.0, MA_fast=np.nan)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
-    def test_nan_macd_prev_returns_false(self):
-        row      = make_row(Close=110.0, MACD=2.0)
-        prev_row = make_row(High_N=108.0, MACD=np.nan)
+    def test_nan_ma_slow_returns_false(self):
+        row      = make_row(Close=110.0, MA_slow=np.nan)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_no_trigger_when_volume_below_threshold(self):
         """量不足（Volume < Vol_MA20 × 1.5）→ 不進場"""
-        row      = make_row(Close=110.0, MACD=2.0, Volume=100_000.0, Vol_MA20=100_000.0)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=110.0, Volume=100_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_no_trigger_when_volume_equals_threshold(self):
         """量剛好等於 1.5 倍均量（需嚴格大於）→ 不進場"""
-        row      = make_row(Close=110.0, MACD=2.0, Volume=150_000.0, Vol_MA20=100_000.0)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=110.0, Volume=150_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_triggers_with_volume_surge(self):
         """量超過 1.5 倍均量 → 進場"""
-        row      = make_row(Close=110.0, MACD=2.0, Volume=160_000.0, Vol_MA20=100_000.0)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=110.0, Volume=160_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(High_N=108.0)
         assert SignalGenerator.long_entry(row, prev_row)
 
     def test_nan_volume_returns_false(self):
-        row      = make_row(Close=110.0, MACD=2.0, Volume=np.nan)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=110.0, Volume=np.nan)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
     def test_nan_vol_ma20_returns_false(self):
-        row      = make_row(Close=110.0, MACD=2.0, Vol_MA20=np.nan)
-        prev_row = make_row(High_N=108.0, MACD=1.0)
+        row      = make_row(Close=110.0, Vol_MA20=np.nan)
+        prev_row = make_row(High_N=108.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
 
@@ -184,65 +177,72 @@ class TestShortEntry:
     """short_entry(row, prev_row)"""
 
     def test_triggers_when_all_conditions_met(self):
-        """收盤跌破前日 Low_N，MACD < 0 且下降"""
-        row      = make_row(Close=88.0, MACD=-2.0)   # 今=-2.0 < 昨=-1.0，且 < 0
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        """收盤跌破前日 Low_N，MA_fast < MA_slow，量能充足"""
+        row      = make_row(Close=88.0, MA_fast=49.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
         assert SignalGenerator.short_entry(row, prev_row)
 
     def test_no_trigger_without_breakdown(self):
         """收盤未跌破 Low_N"""
-        row      = make_row(Close=95.0, MACD=-2.0)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        row      = make_row(Close=95.0, MA_fast=49.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
     def test_no_trigger_when_close_equals_low_n(self):
         """收盤等於 Low_N（需嚴格小於）"""
-        row      = make_row(Close=92.0, MACD=-2.0)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        row      = make_row(Close=92.0, MA_fast=49.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
-    def test_no_trigger_when_macd_positive(self):
-        """MACD >= 0 → 不在空頭區間"""
-        row      = make_row(Close=88.0, MACD=0.5)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+    def test_no_trigger_when_ma_bullish(self):
+        """MA_fast > MA_slow（多頭趨勢）→ 不做空"""
+        row      = make_row(Close=88.0, MA_fast=51.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
-    def test_no_trigger_when_macd_not_falling(self):
-        """MACD 今 >= MACD 昨（未下降）"""
-        row      = make_row(Close=88.0, MACD=-1.0)   # 今=-1.0 = 昨=-1.0
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+    def test_no_trigger_when_ma_fast_equals_ma_slow(self):
+        """MA_fast == MA_slow（需嚴格小於）→ 不做空"""
+        row      = make_row(Close=88.0, MA_fast=50.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
     def test_nan_close_returns_false(self):
-        row      = make_row(Close=np.nan)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        row      = make_row(Close=np.nan, MA_fast=49.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
     def test_nan_low_n_returns_false(self):
-        row      = make_row(Close=88.0, MACD=-2.0)
-        prev_row = make_row(Low_N=np.nan, MACD=-1.0)
+        row      = make_row(Close=88.0, MA_fast=49.0, MA_slow=50.0)
+        prev_row = make_row(Low_N=np.nan)
         assert not SignalGenerator.short_entry(row, prev_row)
 
-    def test_nan_macd_returns_false(self):
-        row      = make_row(Close=88.0, MACD=np.nan)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+    def test_nan_ma_fast_returns_false(self):
+        row      = make_row(Close=88.0, MA_fast=np.nan, MA_slow=50.0)
+        prev_row = make_row(Low_N=92.0)
+        assert not SignalGenerator.short_entry(row, prev_row)
+
+    def test_nan_ma_slow_returns_false(self):
+        row      = make_row(Close=88.0, MA_fast=49.0, MA_slow=np.nan)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
     def test_no_trigger_when_volume_below_threshold(self):
         """量不足 → 不進場"""
-        row      = make_row(Close=88.0, MACD=-2.0, Volume=100_000.0, Vol_MA20=100_000.0)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        row      = make_row(Close=88.0, MA_fast=49.0, MA_slow=50.0,
+                            Volume=100_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
     def test_triggers_with_volume_surge(self):
         """量超過 1.5 倍均量 → 進場"""
-        row      = make_row(Close=88.0, MACD=-2.0, Volume=160_000.0, Vol_MA20=100_000.0)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        row      = make_row(Close=88.0, MA_fast=49.0, MA_slow=50.0,
+                            Volume=160_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(Low_N=92.0)
         assert SignalGenerator.short_entry(row, prev_row)
 
     def test_nan_volume_returns_false(self):
-        row      = make_row(Close=88.0, MACD=-2.0, Volume=np.nan)
-        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        row      = make_row(Close=88.0, MA_fast=49.0, MA_slow=50.0, Volume=np.nan)
+        prev_row = make_row(Low_N=92.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
 

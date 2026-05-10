@@ -39,25 +39,22 @@ class TestTradingConfigDefaults:
 
     # ── 指標參數 ──
     def test_breakout_window_default(self):
-        assert self.cfg.breakout_window == 20
+        assert self.cfg.breakout_window == 50
 
     def test_stop_window_default(self):
         assert self.cfg.stop_window == 10
 
-    def test_macd_fast_default(self):
-        assert self.cfg.macd_fast == 12
+    def test_ma_fast_default(self):
+        assert self.cfg.ma_fast == 50
 
-    def test_macd_slow_default(self):
-        assert self.cfg.macd_slow == 26
-
-    def test_macd_signal_default(self):
-        assert self.cfg.macd_signal == 9
+    def test_ma_slow_default(self):
+        assert self.cfg.ma_slow == 100
 
     def test_atr_period_default(self):
         assert self.cfg.atr_period == 100
 
     def test_atr_multiplier_default(self):
-        assert self.cfg.atr_multiplier == 3.0
+        assert self.cfg.atr_multiplier == 5.0
 
     def test_week52_default(self):
         assert self.cfg.week52 == 252
@@ -115,11 +112,10 @@ class TestTradingConfigCustom:
         cfg = TradingConfig(stop_window=5)
         assert cfg.stop_window == 5
 
-    def test_custom_macd_params(self):
-        cfg = TradingConfig(macd_fast=8, macd_slow=21, macd_signal=5)
-        assert cfg.macd_fast == 8
-        assert cfg.macd_slow == 21
-        assert cfg.macd_signal == 5
+    def test_custom_ma_params(self):
+        cfg = TradingConfig(ma_fast=20, ma_slow=60)
+        assert cfg.ma_fast == 20
+        assert cfg.ma_slow == 60
 
     def test_multiple_custom_params(self):
         cfg = TradingConfig(
@@ -175,14 +171,11 @@ class TestTradingConfigTypes:
     def test_stop_window_is_int(self):
         assert isinstance(self.cfg.stop_window, int)
 
-    def test_macd_fast_is_int(self):
-        assert isinstance(self.cfg.macd_fast, int)
+    def test_ma_fast_is_int(self):
+        assert isinstance(self.cfg.ma_fast, int)
 
-    def test_macd_slow_is_int(self):
-        assert isinstance(self.cfg.macd_slow, int)
-
-    def test_macd_signal_is_int(self):
-        assert isinstance(self.cfg.macd_signal, int)
+    def test_ma_slow_is_int(self):
+        assert isinstance(self.cfg.ma_slow, int)
 
     def test_atr_period_is_int(self):
         assert isinstance(self.cfg.atr_period, int)
@@ -204,10 +197,10 @@ class TestTradingConfigTypes:
 class TestTradingConfigLogic:
     """驗證參數之間的邏輯關係"""
 
-    def test_macd_fast_less_than_macd_slow(self):
-        """MACD 快線週期應小於慢線週期"""
+    def test_ma_fast_less_than_ma_slow(self):
+        """MA 快線週期應小於慢線週期"""
         cfg = TradingConfig()
-        assert cfg.macd_fast < cfg.macd_slow
+        assert cfg.ma_fast < cfg.ma_slow
 
     def test_stop_window_less_than_breakout_window(self):
         """初始停損窗口應小於進場突破窗口"""
@@ -219,7 +212,7 @@ class TestTradingConfigLogic:
         cfg = TradingConfig(initial_equity=1_000_000, risk_pct=0.002)
         assert cfg.initial_equity * cfg.risk_pct == pytest.approx(2000.0)
 
-    def test_week52_greater_than_macd_slow(self):
-        """52 週週期應大於 MACD 慢線週期"""
+    def test_week52_greater_than_ma_slow(self):
+        """52 週週期應大於 MA 慢線週期"""
         cfg = TradingConfig()
-        assert cfg.week52 > cfg.macd_slow
+        assert cfg.week52 > cfg.ma_slow

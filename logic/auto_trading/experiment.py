@@ -18,10 +18,12 @@ from main import run_backtest
 # ── 在這裡修改你想測試的參數 ─────────────────────────────────────────
 # 沒有寫的參數會自動沿用 config.py 的預設值，不需要全部列出
 cfg = TradingConfig(
-    initial_equity = 1_000_000,    # 測試 100 萬資金
-    max_positions  = 10,           # 最大持倉數
-    max_trade_cost = 100_000,      # 單筆上限 = 100萬 ÷ 10
-    # risk_pct     = 0.01,         # 其他參數保持預設，需要時取消 # 即可
+    # initial_equity = 180_000,    # 預設值，需要改時取消 # 即可
+    # max_positions  = 5,
+    # max_trade_cost = 36_000,
+    # risk_pct       = 0.01,
+    # atr_multiplier = 5.0,
+    # vol_mult       = 1.5,
 )
 # ────────────────────────────────────────────────────────────────────
 

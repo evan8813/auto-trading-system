@@ -39,9 +39,8 @@ def scenario_cfg(**overrides) -> TradingConfig:
         risk_pct         = 0.02,          # 風險比例放大，確保 lots > 0
         breakout_window  = 5,
         stop_window      = 3,             # 初始停損窗口（< breakout_window）
-        macd_fast        = 3,             # 短週期 EMA，讓 MACD 快速反應合成資料
-        macd_slow        = 6,
-        macd_signal      = 3,
+        ma_fast          = 3,             # 短週期 MA，讓趨勢濾網快速反應合成資料
+        ma_slow          = 6,
         atr_period       = 5,
         atr_multiplier   = 3.0,
         week52           = 25,            # 暖機期 = 25 個交易日
