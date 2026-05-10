@@ -377,9 +377,10 @@ class Backtester:
         prev_row: pd.Series,
     ) -> str | None:
         """判斷進場方向，優先做多，其次做空，都不符合回傳 None"""
-        if self.sig_gen.long_entry(row, prev_row):
+        vol_mult = self.cfg.vol_mult
+        if self.sig_gen.long_entry(row, prev_row, vol_mult):
             return "long"
-        if self.sig_gen.short_entry(row, prev_row):
+        if self.sig_gen.short_entry(row, prev_row, vol_mult):
             return "short"
         return None
 

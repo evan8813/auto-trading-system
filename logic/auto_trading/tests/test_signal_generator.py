@@ -29,6 +29,8 @@ def make_row(**kwargs) -> pd.Series:
         "High_N": 108.0, "Low_N": 90.0,
         "High_Stop": 106.0, "Low_Stop": 94.0,
         "MACD": 1.0,
+        "Volume": 200_000.0,    # 預設量：2 倍均量（符合 1.5x 門檻）
+        "Vol_MA20": 100_000.0,  # 預設 20 日均量
     }
     defaults.update(kwargs)
     return pd.Series(defaults)
@@ -95,6 +97,34 @@ class TestLongEntry:
     def test_nan_macd_prev_returns_false(self):
         row      = make_row(Close=110.0, MACD=2.0)
         prev_row = make_row(High_N=108.0, MACD=np.nan)
+        assert not SignalGenerator.long_entry(row, prev_row)
+
+    def test_no_trigger_when_volume_below_threshold(self):
+        """量不足（Volume < Vol_MA20 × 1.5）→ 不進場"""
+        row      = make_row(Close=110.0, MACD=2.0, Volume=100_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(High_N=108.0, MACD=1.0)
+        assert not SignalGenerator.long_entry(row, prev_row)
+
+    def test_no_trigger_when_volume_equals_threshold(self):
+        """量剛好等於 1.5 倍均量（需嚴格大於）→ 不進場"""
+        row      = make_row(Close=110.0, MACD=2.0, Volume=150_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(High_N=108.0, MACD=1.0)
+        assert not SignalGenerator.long_entry(row, prev_row)
+
+    def test_triggers_with_volume_surge(self):
+        """量超過 1.5 倍均量 → 進場"""
+        row      = make_row(Close=110.0, MACD=2.0, Volume=160_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(High_N=108.0, MACD=1.0)
+        assert SignalGenerator.long_entry(row, prev_row)
+
+    def test_nan_volume_returns_false(self):
+        row      = make_row(Close=110.0, MACD=2.0, Volume=np.nan)
+        prev_row = make_row(High_N=108.0, MACD=1.0)
+        assert not SignalGenerator.long_entry(row, prev_row)
+
+    def test_nan_vol_ma20_returns_false(self):
+        row      = make_row(Close=110.0, MACD=2.0, Vol_MA20=np.nan)
+        prev_row = make_row(High_N=108.0, MACD=1.0)
         assert not SignalGenerator.long_entry(row, prev_row)
 
 
@@ -195,6 +225,23 @@ class TestShortEntry:
 
     def test_nan_macd_returns_false(self):
         row      = make_row(Close=88.0, MACD=np.nan)
+        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        assert not SignalGenerator.short_entry(row, prev_row)
+
+    def test_no_trigger_when_volume_below_threshold(self):
+        """量不足 → 不進場"""
+        row      = make_row(Close=88.0, MACD=-2.0, Volume=100_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        assert not SignalGenerator.short_entry(row, prev_row)
+
+    def test_triggers_with_volume_surge(self):
+        """量超過 1.5 倍均量 → 進場"""
+        row      = make_row(Close=88.0, MACD=-2.0, Volume=160_000.0, Vol_MA20=100_000.0)
+        prev_row = make_row(Low_N=92.0, MACD=-1.0)
+        assert SignalGenerator.short_entry(row, prev_row)
+
+    def test_nan_volume_returns_false(self):
+        row      = make_row(Close=88.0, MACD=-2.0, Volume=np.nan)
         prev_row = make_row(Low_N=92.0, MACD=-1.0)
         assert not SignalGenerator.short_entry(row, prev_row)
 
