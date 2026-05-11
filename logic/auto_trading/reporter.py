@@ -70,6 +70,17 @@ class Reporter:
         trades.to_csv(path, index=False, encoding="utf-8-sig")
         print(f"  交易紀錄已儲存：{path}  （共 {len(trades)} 筆）")
 
+    # ── Equity Curve CSV ──────────────────────
+
+    @staticmethod
+    def save_equity_curve(
+        equity_curve: pd.DataFrame,
+        path: str = "equity_curve.csv",
+    ) -> None:
+        """equity_curve DataFrame（index=date, cols: equity, n_positions）儲存為 CSV。"""
+        equity_curve.to_csv(path, index=True, encoding="utf-8-sig")
+        print(f"  淨值曲線已儲存：{path}")
+
     # ── Equity Curve 圖 ───────────────────────
 
     @staticmethod
