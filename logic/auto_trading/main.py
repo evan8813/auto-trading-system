@@ -93,6 +93,10 @@ def run_backtest(
         results["equity_curve"],
         save_path=str(out / "equity_curve.png"),
     )
+    Reporter.save_equity_curve(
+        results["equity_curve"],
+        path=str(out / "equity_curve.csv"),
+    )
     Reporter.save_trade_log(
         results["trades"],
         path=str(out / "trade_log.csv"),
