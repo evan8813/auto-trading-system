@@ -18,6 +18,7 @@ backtester.py
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pandas as pd
 from tqdm import tqdm
@@ -47,6 +48,19 @@ class Backtester:
         self.risk_mgr = RiskManager(cfg)
         self.sig_gen  = SignalGenerator()
         self.uni_flt  = UniverseFilter(cfg)
+
+        # 產業對應表（ticker str → sector str）；僅 max_positions_per_sector > 0 時啟用
+        self._sector_map: dict[str, str] = {}
+        if cfg.max_positions_per_sector > 0:
+            p = Path(cfg.sector_csv_path)
+            if p.exists():
+                sm = pd.read_csv(p, dtype=str)
+                sm["ticker"] = sm["ticker"].str.strip()
+                sm["sector"] = sm["sector"].str.strip()
+                self._sector_map = dict(zip(sm["ticker"], sm["sector"]))
+                logger.info(f"載入產業對應表：{len(self._sector_map)} 支股票，同產業上限 {cfg.max_positions_per_sector} 席")
+            else:
+                logger.warning(f"找不到產業對應表：{p}，sector cap 功能停用")
 
     # ══ 主入口 ════════════════════════════════
 
@@ -195,6 +209,8 @@ class Backtester:
                     continue
                 direction = self._resolve_direction(row, prev_row)
                 if direction:
+                    if self._sector_cap_exceeded(ticker, positions, pending_entries, pending_exit_tickers):
+                        continue
                     pending_entries.append((ticker, direction, atr))
 
             equity_curve.append({"date": date, "equity": equity,
@@ -383,6 +399,31 @@ class Backtester:
         if self.sig_gen.short_entry(row, prev_row, vol_mult):
             return "short"
         return None
+
+    def _sector_cap_exceeded(
+        self,
+        ticker:               str,
+        positions:            list[Position],
+        pending_entries:      list[tuple],
+        pending_exit_tickers: dict,
+    ) -> bool:
+        """同產業席數已達上限時回傳 True（應跳過此 ticker）。"""
+        cap = self.cfg.max_positions_per_sector
+        if cap <= 0 or not self._sector_map:
+            return False
+        sector = self._sector_map.get(str(ticker))
+        if not sector:
+            return False  # 查不到產業 → 不限制
+        holding = sum(
+            1 for p in positions
+            if self._sector_map.get(str(p.ticker)) == sector
+            and p.ticker not in pending_exit_tickers
+        )
+        pending = sum(
+            1 for e in pending_entries
+            if self._sector_map.get(str(e[0])) == sector
+        )
+        return holding + pending >= cap
 
     # ══ 績效計算 ══════════════════════════════
 

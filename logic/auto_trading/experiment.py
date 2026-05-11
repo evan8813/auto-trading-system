@@ -24,6 +24,7 @@ cfg = TradingConfig(
     # risk_pct       = 0.01,
     # atr_multiplier = 5.0,
     # vol_mult       = 1.5,
+    max_positions_per_sector = 2,  # 同產業最多 2 席（0 = 不限制）
 )
 # ────────────────────────────────────────────────────────────────────
 

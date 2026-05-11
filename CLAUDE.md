@@ -57,7 +57,8 @@
 | `test_scenarios.py` | 12 | 空池、持倉上限、補倉、不重複、零張數、停牌 |
 | `test_scenarios_advanced.py` | 14 | ROC 排序、T+1 停牌補位、動態成本截斷、換倉、權益追蹤 |
 | `test_two_phase_exit.py` | 13 | ATR 追蹤停損端對端驗證 |
-| **合計** | **285** | |
+| `test_sector_cap.py` | 12 | 同產業席數上限（cap=2/0、多產業、未知ticker、CSV不存在）|
+| **合計** | **297** | |
 
 ---
 

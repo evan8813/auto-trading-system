@@ -184,7 +184,41 @@ def Contact():
     print()
     print()
 
+def SaveSectorMapping(output_path: str = "sector_mapping.csv") -> None:
+    """
+    從 twse_stocks_id.h5 提取股票代碼 → 產業別對應表，存為 CSV。
+
+    輸出欄位：
+      ticker  : 股票代碼（字串，e.g. '2330'）
+      sector  : 產業別（e.g. '半導體業'）
+
+    編碼使用 UTF-8-sig（含 BOM），確保 pandas / Excel 皆可正確讀取中文。
+
+    執行方式：
+      python get_history.py --sector
+    """
+    df = pd.read_hdf('twse_stocks_id.h5', mode='r', index=False)
+
+    mapping = df[['stocks_id', 'industry']].copy()
+    mapping.columns = ['ticker', 'sector']
+    mapping['ticker'] = mapping['ticker'].astype(str).str.strip()
+    mapping['sector'] = mapping['sector'].astype(str).str.strip()
+    mapping = mapping.drop_duplicates(subset='ticker').sort_values('ticker').reset_index(drop=True)
+
+    mapping.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+    print(f'[完成] 產業對應表已儲存：{output_path}')
+    print(f'       共 {len(mapping)} 支股票，{mapping["sector"].nunique()} 個產業')
+    print()
+    print(mapping['sector'].value_counts().to_string())
+
+
 def main():
+    import sys
+    if '--sector' in sys.argv:
+        SaveSectorMapping()
+        return
+
     Intro()
     df,sorted_df,months = PreProcess()
     print("前處理完成!")
