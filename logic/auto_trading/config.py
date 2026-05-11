@@ -11,8 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# taiex.csv 預設放在專案根目錄（config.py 往上三層）
-_TAIEX_DEFAULT = str(Path(__file__).parent.parent.parent / "taiex.csv")
+# taiex.csv / sector_mapping.csv 預設放在專案根目錄（config.py 往上三層）
+_TAIEX_DEFAULT   = str(Path(__file__).parent.parent.parent / "taiex.csv")
+_SECTOR_DEFAULT  = str(Path(__file__).parent.parent.parent / "sector_mapping.csv")
 
 
 @dataclass
@@ -47,6 +48,10 @@ class TradingConfig:
     # ── 大盤環境（TAIEX 200 日 EMA）──
     taiex_csv_path:   str = field(default_factory=lambda: _TAIEX_DEFAULT)
     taiex_ema_period: int = 200              # 大盤 EMA 週期
+
+    # ── 產業分散限制 ──
+    max_positions_per_sector: int = 0        # 0 = 不限制；>0 = 同產業最多 N 席
+    sector_csv_path: str = field(default_factory=lambda: _SECTOR_DEFAULT)
 
     # ── 回測區間 ──
     backtest_start: str = "2010-01-01"
