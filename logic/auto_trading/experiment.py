@@ -9,6 +9,26 @@ experiment.py
   python experiment.py /path/to/stocks_full 2330  # 指定股票
 
 結果輸出到 output/experiment/，不會覆蓋 main.py 的 output/。
+
+════════════════════════════════════════════════════════
+  歷次實驗紀錄（基準 main.py：+69.6%、MDD -29.7%、Calmar 0.14）
+════════════════════════════════════════════════════════
+
+  【實驗 A】產業集中度上限 max_positions_per_sector=2
+    結論：+57.4%、MDD -33.3%、Calmar 0.107 → 更差
+          產業集中不是問題，限制反而砍掉好機會
+
+  【實驗 B】資金規模 1M（max_risk_amount 未調整）
+    結論：+20.7%、MDD -11.3%、Calmar 0.130
+          max_risk_amount=2,500 被卡住，position size 沒等比放大，結果失真
+
+  【實驗 C】資金規模 1M + max_risk_amount=10,000
+    結論：績效不佳（未記錄詳細數字）
+          資金規模不是主因
+
+  【待測】ATR 倍數調整（5x → 3.5x）
+  【待測】時間段分析（先做 Section 15 圖表再決定參數方向）
+════════════════════════════════════════════════════════
 """
 
 import sys
@@ -24,7 +44,6 @@ cfg = TradingConfig(
     # risk_pct       = 0.01,
     # atr_multiplier = 5.0,
     # vol_mult       = 1.5,
-    max_positions_per_sector = 2,  # 同產業最多 2 席（0 = 不限制）
 )
 # ────────────────────────────────────────────────────────────────────
 
