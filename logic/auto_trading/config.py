@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# taiex.csv / sector_mapping.csv 預設放在專案根目錄（config.py 往上三層）
-_TAIEX_DEFAULT   = str(Path(__file__).parent.parent.parent / "taiex.csv")
+# taiex.csv 放在 market_data/（config.py 往上三層再進 market_data）
+_TAIEX_DEFAULT   = str(Path(__file__).parent.parent.parent / "market_data" / "taiex.csv")
 _SECTOR_DEFAULT  = str(Path(__file__).parent.parent.parent / "sector_mapping.csv")
 
 
