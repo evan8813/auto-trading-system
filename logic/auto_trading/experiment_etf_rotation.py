@@ -39,6 +39,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 BOND_TICKER  = "00679B"   # 債券 ETF 代號（改這裡換別的 ETF）
 EMA_PERIOD   = 200        # 大盤 EMA 週期
 TAIEX_FILE   = "taiex.csv"
+MARKET_DATA  = Path(__file__).parent.parent.parent / "market_data"  # taiex.csv + ETF CSV 統一放這裡
 # ─────────────────────────────────────────────────────────────────────
 
 
@@ -181,15 +182,13 @@ def main() -> None:
     equity = load_equity_curve(equity_path)
 
     print("載入加權指數...")
-    taiex_path = data_folder / TAIEX_FILE
-    if not taiex_path.exists():
-        taiex_path = data_folder.parent / TAIEX_FILE
+    taiex_path = MARKET_DATA / TAIEX_FILE
     taiex = load_csv(taiex_path)["Close"].dropna()
 
     print(f"載入債券 ETF ({BOND_TICKER})...")
     bond_candidates = [
-        data_folder / f"{BOND_TICKER}.csv",
-        data_folder / f"{BOND_TICKER}_adj.csv",
+        MARKET_DATA / f"{BOND_TICKER}.csv",
+        MARKET_DATA / f"{BOND_TICKER}_adj.csv",
     ]
     bond_path = next((p for p in bond_candidates if p.exists()), None)
     if bond_path is None:
