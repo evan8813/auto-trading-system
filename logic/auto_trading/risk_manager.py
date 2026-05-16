@@ -31,8 +31,7 @@ class RiskManager:
     def risk_amount(self, equity: float) -> float:
         """
         每筆交易可承擔的最大損失金額（元）。
-        預設不設上限（max_risk_amount=inf），部位隨資金等比成長。
-        若需限制單筆風險，可在 TradingConfig 設定有限的 max_risk_amount。
+        上限 max_risk_amount：防止資產大幅成長後單筆風險失控。
         """
         return min(equity * self.cfg.risk_pct, self.cfg.max_risk_amount)
 
