@@ -181,14 +181,17 @@ class Backtester:
             effective_held = held_tickers - set(pending_exit_tickers)
             available_slots = self.cfg.max_positions - len(effective_held)
 
-            # 按 ROC_avg 由高到低排序，確保動能最強的股票優先進場
+            # 按 abs(ROC_avg) 排序，多空都以動能強度競爭席位
             def get_roc(ticker):
                 df_ = data.get(ticker)
                 if df_ is None or date not in df_.index:
                     return float("-inf")
                 r = df_.loc[date]
                 if isinstance(r, pd.DataFrame): r = r.iloc[-1]
-                return float(r.get("ROC_avg", float("-inf")))
+                v = r.get("ROC_avg", None)
+                if v is None or pd.isna(v):
+                    return float("-inf")
+                return abs(float(v))
 
             candidates = sorted(candidates, key=get_roc, reverse=True)
 

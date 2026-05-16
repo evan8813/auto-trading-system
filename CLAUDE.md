@@ -80,10 +80,13 @@
 
 | 條件 | 說明 |
 |------|------|
-| 做多進場 | 收盤 > 前日 High_N 且 MACD > 0 且 MACD 上升 |
+| 做多進場 | 收盤 > 前日 High_N 且 MA_fast > MA_slow |
 | 做多出場 | 收盤 < trail_high − atr_multiplier × ATR（從第一天開始，trail_high 只升不降） |
-| 做空進場 | 收盤 < 前日 Low_N 且 MACD < 0 且 MACD 下降 |
+| 做空進場 | 收盤 < 前日 Low_N 且 MA_fast < MA_slow |
 | 做空出場 | 收盤 > trail_low + atr_multiplier × ATR（從第一天開始，trail_low 只降不升） |
+| MA_fast | 50 日 SMA |
+| MA_slow | 100 日 SMA |
+| High_N / Low_N | 50 日 |
 
 ---
 
