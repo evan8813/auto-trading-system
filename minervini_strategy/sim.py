@@ -75,34 +75,82 @@ class Report:
 
 # ── 回測引擎 ──────────────────────────────────────────────────────────────────
 
+def _turtle_lots(
+    equity:         float,
+    atr_val:        float,
+    px:             float,
+    atr_multiplier: float,
+    risk_pct:       float,
+    max_risk_amount: float,
+    max_positions:  int,
+) -> int:
+    """
+    海龜法部位計算：
+      risk_amount = min(equity × risk_pct, max_risk_amount)
+      lots        = int(risk_amount / (atr_multiplier × ATR × 1000))
+    容忍區：lots==0 但 1張風險 ≤ equity×2% → 進 1 張
+    動態上限：單倉成本 ≤ equity / max_positions
+    """
+    if np.isnan(atr_val) or atr_val <= 0 or px <= 0:
+        return 0
+
+    risk_amount   = min(equity * risk_pct, max_risk_amount)
+    per_lot_risk  = atr_multiplier * atr_val * 1000   # 1 張被打到停損的虧損額
+
+    lots = int(risk_amount / per_lot_risk)
+
+    # 容忍區：主公式給 0，但 1 張風險在 2% 以內 → 進 1 張
+    if lots == 0:
+        lots = 1 if per_lot_risk <= equity * 0.02 else 0
+
+    if lots == 0:
+        return 0
+
+    # 動態單倉上限（成本不超過 equity / max_positions）
+    max_cost = equity / max_positions
+    max_lots_by_cost = int(max_cost / (px * 1000))
+    lots = min(lots, max_lots_by_cost)
+
+    return lots
+
+
 def sim(
-    position:       pd.DataFrame,
-    close:          pd.DataFrame,
-    stop_loss:      float | None = 0.08,
-    take_profit:    float | None = None,
-    max_positions:  int          = 5,
-    fee_ratio:      float        = 1.425 / 1000 / 3,
-    tax_ratio:      float        = 3 / 1000,
-    initial_equity: float        = 1_000_000,
+    position:           pd.DataFrame,
+    close:              pd.DataFrame,
+    stop_loss:          float | None = 0.08,
+    take_profit:        float | None = None,
+    atr:                pd.DataFrame | None = None,
+    atr_multiplier:     float        = 3.0,
+    risk_pct:           float        = 0.02,
+    max_risk_amount:    float        = 15_000,
+    exit_on_signal_off: bool         = True,
+    max_positions:      int          = 5,
+    fee_ratio:          float        = 1.425 / 1000 / 3,
+    tax_ratio:          float        = 3 / 1000,
+    initial_equity:     float        = 1_000_000,
 ) -> Report:
     """
     每日掃描回測引擎。
 
     Parameters
     ----------
-    position       : bool DataFrame（True = 持有訊號），index=日期, columns=股票代號
-    close          : 收盤價 DataFrame，同 index/columns
-    stop_loss      : 停損比例，e.g. 0.08 = 8%
-    take_profit    : 停利比例，e.g. 0.25 = 25%
-    max_positions  : 最大同時持倉數
-    fee_ratio      : 手續費（買賣各收）
-    tax_ratio      : 交易稅（賣時收）
-    initial_equity : 起始資金（元）
+    position            : bool DataFrame（True = 持有訊號），index=日期, columns=股票代號
+    close               : 收盤價 DataFrame，同 index/columns
+    stop_loss           : 固定停損比例，e.g. 0.08 = 8%（atr 提供時忽略）
+    take_profit         : 停利比例，e.g. 0.25 = 25%
+    atr                 : ATR DataFrame（提供時改用 ATR 追蹤停損）
+    atr_multiplier      : ATR 停損倍數（進場價 − atr_multiplier × ATR）
+    exit_on_signal_off  : True = 訊號消失時出場；False = 只靠停損出場（ATR 模式建議 False）
+    max_positions       : 最大同時持倉數
+    fee_ratio           : 手續費（買賣各收）
+    tax_ratio           : 交易稅（賣時收）
+    initial_equity      : 起始資金（元）
 
     邏輯
     ----
     進場：position 由 False → True，且持倉數 < max_positions
-    出場：position 變 False  OR  停損 / 停利觸發
+    出場（固定停損）：position 變 False OR 停損觸發
+    出場（ATR追蹤）：trail_stop = max(trail_stop, close − atr_mult × ATR)，收盤跌破即出
     部位大小：進場時 portfolio_value / max_positions（等權重）
     """
     # 對齊 index，只取 close 有資料的日期
@@ -125,14 +173,25 @@ def sim(
             if tk not in close.columns:
                 exits_sl.append((tk, "delisted"))
                 continue
-            px  = close.at[dt, tk]
+            px = close.at[dt, tk]
             if np.isnan(px):
                 continue
-            ret = px / h["entry_price"] - 1
-            if stop_loss   is not None and ret <= -stop_loss:
-                exits_sl.append((tk, "stop_loss"))
-            elif take_profit is not None and ret >= take_profit:
-                exits_sl.append((tk, "take_profit"))
+
+            if atr is not None and tk in atr.columns:
+                # ATR 追蹤停損：每日更新 trail_stop（只升不降）
+                curr_atr = atr.at[dt, tk]
+                if not np.isnan(curr_atr):
+                    new_stop = px - atr_multiplier * curr_atr
+                    h["trail_stop"] = max(h["trail_stop"], new_stop)
+                if px < h["trail_stop"]:
+                    exits_sl.append((tk, "atr_trail_stop"))
+            else:
+                # 固定停損 / 停利
+                ret = px / h["entry_price"] - 1
+                if stop_loss is not None and ret <= -stop_loss:
+                    exits_sl.append((tk, "stop_loss"))
+                elif take_profit is not None and ret >= take_profit:
+                    exits_sl.append((tk, "take_profit"))
 
         for tk, reason in exits_sl:
             h  = holdings.pop(tk)
@@ -151,7 +210,8 @@ def sim(
             })
 
         # ── 2. 訊號消失 → 出場 ───────────────────────────
-        exits_sig = [tk for tk in list(holdings) if not curr_pos.get(tk, False)]
+        exits_sig = [] if not exit_on_signal_off else \
+            [tk for tk in list(holdings) if not curr_pos.get(tk, False)]
         for tk in exits_sig:
             if tk in holdings:
                 h  = holdings.pop(tk)
@@ -190,15 +250,39 @@ def sim(
 
             for tk in new_signals[:slots]:
                 px = close.at[dt, tk]
-                if np.isnan(px) or px <= 0 or per_pos > equity:
+                if np.isnan(px) or px <= 0:
                     continue
-                shares = per_pos * (1 - fee_ratio) / px
-                equity -= per_pos
+
+                if atr is not None and tk in atr.columns:
+                    # ── 海龜法：ATR 計算張數 ──
+                    atr_val = atr.at[dt, tk]
+                    lots = _turtle_lots(
+                        equity, atr_val, px,
+                        atr_multiplier, risk_pct, max_risk_amount, max_positions,
+                    )
+                    if lots == 0:
+                        continue
+                    shares    = lots * 1000
+                    cost      = shares * px * (1 + fee_ratio)
+                    init_trail = px - atr_multiplier * atr_val
+                else:
+                    # ── 等權重（無 ATR 時）──
+                    if per_pos > equity:
+                        continue
+                    shares     = per_pos * (1 - fee_ratio) / px
+                    cost       = per_pos
+                    init_trail = np.nan
+
+                if cost > equity:
+                    continue
+
+                equity -= cost
                 holdings[tk] = {
                     "shares":      shares,
                     "entry_price": px,
                     "entry_date":  dt,
-                    "cost":        per_pos,
+                    "cost":        cost,
+                    "trail_stop":  init_trail,
                 }
 
         # ── 4. Mark-to-market ────────────────────────────

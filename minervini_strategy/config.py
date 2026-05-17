@@ -11,8 +11,8 @@ class Config:
     initial_equity: float = 1_000_000     # 初始資金（元）
 
     # ── 風控 ──────────────────────────────────
-    risk_pct:        float = 0.01         # 每筆最大虧損佔淨值（Layer 5 ATR 停損用）
-    max_risk_amount: float = 2_500        # 單筆風險硬上限（元，Layer 5 用）
+    risk_pct:        float = 0.02         # 每筆最大虧損佔淨值 2%
+    max_risk_amount: float = 15_000       # 單筆風險硬上限（元）
     max_positions:   int   = 5            # 最大同時持倉數
 
     # ── 技術指標 ──────────────────────────────
