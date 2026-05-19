@@ -22,6 +22,7 @@ class Config:
     ma_slow:         int   = 100          # 慢速均線日數（Layer 3 用）
     breakout_n:      int   = 252          # 52 週突破回看天數（Layer 1 核心）
     taiex_ema:       int   = 200          # 大盤 EMA 天數（Layer 3 用）
+    roc_period:      int   = 60           # 動能排名回看天數（Layer 5 用）
 
     # ── 選股門檻 ──────────────────────────────
     min_amount_20d:  float = 5_000_000    # 20 日均成交金額下限（Layer 2 用）
